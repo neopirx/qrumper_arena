@@ -5,6 +5,8 @@
 import { WEAPONS, WEAPON_ORDER } from '../sim/defs.js';
 import { xhairFor, applyCrosshair } from './crosshair.js';
 import { BADGES, levelInfo } from '../sim/xp.js';
+// badges: seconds between two badges of the same frag, and how long a group stays up
+const BADGE_GAP = 0.42, BADGE_TIME = 2.6;
 import { yawTo, angleDiff } from '../sim/vec.js';
 
 const ORD = (n) => { const s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
@@ -113,16 +115,25 @@ export class Hud {
     this.awards.unshift({ text, t: 2.6, id: (this.awardId = (this.awardId || 0) + 1) });
     if (this.awards.length > 3) this.awards.length = 3;
   }
-  // frag badge (icon from assets/icons/badges): badges earned together sit side by side
+  // frag badge (icon from assets/icons/badges): badges earned together form a group that is
+  // revealed one by one (each with its emblem sound) and sits side by side until it fades together
   badge(kind, xp) {
-    const b = BADGES[kind];
-    if (!b) return;
+    if (!BADGES[kind]) return;
     const now = performance.now();
-    if (!this.badges.length || now - this.badgeAt > 250) this.badges = this.badges.filter((x) => x.t > 0.6);
+    if (now - (this.badgeAt || -1e9) > 250) this.badgeGroup = (this.badgeGroup || 0) + 1;
     this.badgeAt = now;
-    this.badges.push({ kind, xp, t: 2.6, id: (this.badgeId = (this.badgeId || 0) + 1) });
+    (this.badgeQueue ||= []).push({ kind, xp, group: this.badgeGroup });
+    if (this.badgeQueue.length > 8) this.badgeQueue.shift();
+  }
+  revealBadge() {
+    const b = this.badgeQueue.shift();
+    // a new group clears what's left of the previous one
+    if (this.badges.length && this.badges[0].group !== b.group) this.badges = [];
+    this.badges.push({ ...b, t: BADGE_TIME, id: (this.badgeId = (this.badgeId || 0) + 1) });
+    for (const x of this.badges) x.t = Math.max(x.t, BADGE_TIME);   // the group stays up together
     if (this.badges.length > 5) this.badges.shift();
     this.renderBadges();
+    if (this.onBadge) this.onBadge(b.kind);
   }
   renderBadges() {
     const el = this.$('badges');
@@ -131,7 +142,7 @@ export class Hud {
       if (have.has(b.id)) continue;
       const d = document.createElement('div');
       const B = BADGES[b.kind];
-      d.className = 'badge' + (b.kind === 'kill' ? ' small' : '');
+      d.className = 'badge';
       d.dataset.id = b.id;
       d.innerHTML = `${B.icon ? `<img src="/icons/badges/${B.icon}.png" alt="">` : '<i></i>'}<b>${esc(B.name)}</b>${b.xp ? `<small>+${b.xp} XP</small>` : ''}`;
       el.appendChild(d);
@@ -278,6 +289,8 @@ export class Hud {
     for (const f of this.feed) f.t -= dt;
     this.feed = this.feed.filter((f) => f.t > 0);
     this.set('feed', 'html', this.feed.map((f) => `<div class="${f.me ? 'me' : ''}">${f.html}</div>`).join(''));
+    this.badgeGap = (this.badgeGap || 0) - dt;
+    if (this.badgeQueue?.length && this.badgeGap <= 0) { this.revealBadge(); this.badgeGap = BADGE_GAP; }
     for (const b of this.badges) b.t -= dt;
     if (this.badges.some((b) => b.t <= 0)) { this.badges = this.badges.filter((b) => b.t > 0); this.renderBadges(); }
     for (const c of this.$('badges').children) { const b = this.badges.find((x) => x.id === +c.dataset.id); if (b) c.classList.toggle('out', b.t < 0.4); }

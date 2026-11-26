@@ -255,7 +255,7 @@ class Bot {
     if (this.stuck > 1.6) { this.stuck = 0; this.path = null; this.nextGoal = this.game.time + 0.25; this.strafe = -this.strafe; }
 
     // strafe-jump (bunny hop) on long straight walking stretches
-    if (this.skill >= 3 && !this.enemyVisible) {
+    if (this.skill >= 3 && !this.enemyVisible && this.path) {
       let straight = 0;
       for (let j = this.pathIdx; j < this.path.length - 1 && j < this.pathIdx + 8; j++) {
         if (this.nav.linkType(this.path[j], this.path[j + 1]) !== 'walk') break;

@@ -14,6 +14,8 @@ export const DEFAULTS = {
   zoomSens: 1,           // mouse speed while zoomed, relative to matching the zoom (1 = same feel)
   zoomToggle: false,     // right mouse toggles zoom instead of holding it
   camMotion: 1,          // camera motion on jump / land / shots / hits (0 = off)
+  viewBob: true,         // head bob while walking (part of camera motion)
+  speedFov: true,        // the view widens slightly at bunnyhop speeds
   // view
   fov: 100,              // Quake-style horizontal FOV at 4:3
   volume: 0.7,

@@ -32,6 +32,15 @@ const PODIUM_AT = 7, NEXT_IN = 30;
 const SPOKEN = new Set(['double', 'triple', 'quad', 'monster', 'precision', 'revenge', 'telefrag', 'deathstreak', 'dismembered', 'mutilated']);
 // view kick per shot (degrees of pitch), Q3 cg.kick_angles style: visual only, the aim doesn't move
 const VIEW_KICK = { mg: 0.35, sg: 1.7, gl: 1.0, rl: 1.4, rg: 2.1 };
+// heavier shots also twist the view (roll, degrees), punch the FOV out (degrees) and shove the
+// eye back along the line of sight (units)
+const VIEW_HEFT = {
+  mg: { roll: 0.12, fov: 0, push: 0.2 },
+  sg: { roll: 0.7, fov: 1.6, push: 1.6 },
+  gl: { roll: 0.45, fov: 0.8, push: 1.0 },
+  rl: { roll: 0.6, fov: 2.2, push: 2.4 },
+  rg: { roll: 0.9, fov: 2.0, push: 2.0 },
+};
 
 export class Session {
   // net: { conn, start } for a multiplayer match (start = the server's 'start' message)
@@ -42,7 +51,12 @@ export class Session {
     this.onPause = onPause; this.onExit = onExit; this.onMatchEnd = onMatchEnd; this.onNext = onNext; this.onQuit = onQuit;
     this.net = net;
     // camera motion: landing dip, jump nudge, recoil, damage roll (all scaled by settings.camMotion)
-    this.cam = { landT: 1, landAmt: 0, jumpT: 1, kickP: 0, kickY: 0, kickV: 0, roll: 0, hurtRoll: 0 };
+    // plus head bob, inertia lean, shot roll / FOV punch / push, and a smooth hit and blast shake
+    this.cam = {
+      landT: 1, landAmt: 0, landRoll: 0, jumpT: 1, kickP: 0, kickY: 0, kickV: 0, roll: 0, hurtRoll: 0,
+      kickR: 0, fovK: 0, pushP: 0, pushV: 0, trauma: 0, bobAmt: 0, sv: [0, 0], lean: [0, 0], speedFov: 0,
+    };
+    this.walk = 0;   // distance walked on the ground: drives the head bob, gun bob and footsteps
     this.zoom = 0; this.zoomToggled = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(75, 1, 2, 12000);
@@ -120,6 +134,7 @@ export class Session {
     for (const p of game.players) this.addView(p);
     for (const it of game.items) this.itemViews.set(it.id, new ItemView(this.assets, this.effects, it, this.scene));
     this.hud = new Hud(this.hudRoot, this.settings, this.assets.icons);
+    this.hud.onBadge = () => this.audio.play('badge', null, { volume: 0.7, noVary: true });
     this.input = new Input(this.renderer.domElement, this.settings);
     this.input.onUnlock = () => { if (this.running && !this.paused) this.pause(); };
     this.input.yaw = me.ps.yaw; this.input.pitch = 0;
@@ -334,7 +349,7 @@ export class Session {
       const isMe = p === me;
       switch (e.type) {
         case 'spawn': {
-          if (isMe) { this.input.yaw = e.yaw; this.input.pitch = 0; this.viewWeapon.reset('mg'); this.hud.deathMsg = null; this.hud.clearDamage(); this.zoomToggled = false; }
+          if (isMe) { this.input.yaw = e.yaw; this.input.pitch = 0; this.viewWeapon.reset('mg'); this.cam.sv = [0, 0]; this.cam.trauma = 0; this.hud.deathMsg = null; this.hud.clearDamage(); this.zoomToggled = false; }
           else if (p) { p.alive = true; const m = this.models.get(p.id); if (m) { m.revive(); m.root.visible = true; } }
           if (p) p.prev = [...p.ps.origin];
           fx.sparkle(e.pos, 0x80c0ff, 30, 30);
@@ -351,6 +366,12 @@ export class Session {
             this.viewWeapon.fire(e.weapon);
             this.cam.kickV += (VIEW_KICK[e.weapon] ?? 0.5) * 16;
             this.cam.kickY += (Math.random() - 0.5) * (VIEW_KICK[e.weapon] ?? 0.5) * 0.25;
+            const h = VIEW_HEFT[e.weapon];
+            if (h) {
+              this.cam.kickR += (Math.random() < 0.5 ? -1 : 1) * h.roll * (0.6 + Math.random() * 0.4) * DEG;
+              this.cam.fovK = Math.max(this.cam.fovK, h.fov);
+              this.cam.pushV += h.push * 22;
+            }
           }
           else fx.muzzleFlash(e.pos, w.color, w.id === 'mg' ? 140 : 200, e.dir, w.id);
           break;
@@ -447,6 +468,8 @@ export class Session {
             const side = rel == null ? (Math.random() < 0.5 ? -1 : 1) : Math.sin(rel * DEG) > 0 ? 1 : -1;
             this.cam.hurtRoll += side * Math.min(3, e.damage / 25) * DEG;
             this.cam.kickV -= Math.min(20, e.damage / 4);
+            this.cam.trauma = Math.min(1, this.cam.trauma + Math.min(0.7, e.damage / 90));
+            this.viewWeapon.hurt(e.damage, side);
           }
           if (p && p.alive && e.health > 0) A.play('pain', isMe ? null : p.ps.origin, { volume: isMe ? 0.45 : 0.6 });
           // bullets already bled where they hit; rails and explosions bleed from the body
@@ -502,8 +525,8 @@ export class Session {
           this.hud.center(`<div class="big count">${e.n}</div>`, 0.9);
           break;
         }
-        case 'jump': if (!p) break; A.play('jump', isMe ? null : p.ps.origin, { volume: isMe ? 0.3 : 0.5 }); if (isMe) this.cam.jumpT = 0; break;
-        case 'walljump': if (!p) break; if (isMe) this.cam.jumpT = 0; A.play('walljump', isMe ? null : p.ps.origin, { volume: 0.5 }); fx.sparkle([p.ps.origin[0], p.ps.origin[1] - 20, p.ps.origin[2]], 0xdddddd, 6, 10); break;
+        case 'jump': if (!p) break; A.play('jump', isMe ? null : p.ps.origin, { volume: isMe ? 0.3 : 0.5 }); if (isMe) { this.cam.jumpT = 0; this.viewWeapon.jump(); } break;
+        case 'walljump': if (!p) break; if (isMe) { this.cam.jumpT = 0; this.viewWeapon.jump(); } A.play('walljump', isMe ? null : p.ps.origin, { volume: 0.5 }); fx.sparkle([p.ps.origin[0], p.ps.origin[1] - 20, p.ps.origin[2]], 0xdddddd, 6, 10); break;
         case 'land': if (isMe) { A.play('land', null, { volume: e.hard ? 0.5 : 0.25 }); this.viewWeapon.land(e.hard ? 1 : 0.4); this.landKick(Math.abs(e.vy || 300)); } break;
         case 'fall': if (!p) break; A.play('land', isMe ? null : p.ps.origin, { volume: 0.8, rate: 0.7 }); if (isMe) { this.viewWeapon.land(1.5); this.landKick(800); } break;
         case 'step': if (isMe) this.stepOffset -= e.h || 0; break;
@@ -513,7 +536,8 @@ export class Session {
           A.play('tele', e.from, { volume: 0.5 });
           fx.sparkle([e.from[0], e.from[1] - 24, e.from[2]], 0xb080ff, 30, 30);
           fx.sparkle([e.to[0], e.to[1] - 24, e.to[2]], 0xb080ff, 30, 30);
-          if (isMe) { this.input.yaw = e.yaw; }
+          // a teleport isn't an acceleration: don't let the new velocity jolt the inertia lean
+          if (isMe) { this.input.yaw = e.yaw; this.cam.sv = [me.ps.velocity[0], me.ps.velocity[2]]; }
           if (p) p.prev = [...p.ps.origin];
           break;
         case 'pickup': {
@@ -588,9 +612,19 @@ export class Session {
     this.zoom += (wantZoom - this.zoom) * Math.min(1, dt * 16);
     const baseFov = this.settings.fov;
     const zoomedFov = me.weapon === 'rg' ? Math.min(baseFov, this.settings.zoomFov ?? 40) : baseFov * (1 - (this.settings.zoomOther ?? 0.15));
-    const hfov = baseFov + (zoomedFov - baseFov) * this.zoom;
+    let hfov = baseFov + (zoomedFov - baseFov) * this.zoom;
     // keep the same feel under zoom: mouse speed follows the focal length (scaled by Zoom sensitivity)
     const focal = Math.tan(hfov * DEG / 2) / Math.tan(baseFov * DEG / 2);
+    // speed widens the view a touch (bunnyhop rush) and heavy shots punch it out; neither touches
+    // the mouse speed, and both fade out while zoomed
+    {
+      const c = this.cam, camAmt = this.settings.camMotion ?? 1;
+      const hs = me.alive ? Math.hypot(me.ps.velocity[0], me.ps.velocity[2]) : 0;
+      const want = this.settings.speedFov !== false ? Math.max(0, Math.min(1, (hs - 380) / 520)) * 7 : 0;
+      c.speedFov += (want - c.speedFov) * Math.min(1, dt * 3);
+      c.fovK *= Math.exp(-dt * 9);
+      hfov = Math.min(170, hfov + (c.speedFov + c.fovK) * camAmt * (1 - this.zoom));
+    }
     this.input.sensScale = 1 + (focal * (this.settings.zoomSens ?? 1) - 1) * Math.min(1, this.zoom * 1.5);
     this.hud.setZoom(me.weapon === 'rg' ? this.zoom : 0);
     const vfov = 2 * Math.atan(Math.tan(hfov * DEG / 2) * 0.75) / DEG;
@@ -605,17 +639,28 @@ export class Session {
     this.viewHeight += (targetVH - this.viewHeight) * Math.min(1, dt * 12);
     const yaw = me.alive ? this.input.yaw : (this.deathYaw && this.deathYaw.alive ? yawTo(this.deathYaw.ps.origin[0] - mePos[0], this.deathYaw.ps.origin[2] - mePos[2]) : this.input.yaw);
     const pitch = me.alive ? this.input.pitch : 0;
+    // footsteps fall on the bob's low points: one step every 90 units walked
+    const hspeed = Math.hypot(me.ps.velocity[0], me.ps.velocity[2]);
+    if (me.alive && me.ps.onGround) {
+      const before = Math.floor(this.walk / 90);
+      this.walk += hspeed * dt;
+      if (Math.floor(this.walk / 90) !== before) this.audio.play('step', null, { volume: 0.18 });
+    }
     const cm = this.cameraMotion(dt, me, yaw);
     this.camera.position.set(mePos[0], mePos[1] + (me.alive ? this.viewHeight + this.stepOffset + cm.dy : -8), mePos[2]);
     this.camera.rotation.set((pitch + cm.pitch) * DEG, (yaw + cm.yaw) * DEG, me.alive ? cm.roll : 0.4);
-    // explosion camera shake (radius falloff applied when the explosion spawned)
+    if (cm.push) { this.camera.getWorldDirection(_fw); this.camera.position.addScaledVector(_fw, -cm.push); }
+    // explosion camera shake (radius falloff applied when the explosion spawned): smooth noise
+    // rather than per-frame jitter, so it reads as a shove at any frame rate
     const sh = this.effects.shake;
     if (sh > 0.01) {
-      this.camera.rotation.x += (Math.random() - 0.5) * 0.03 * sh;
-      this.camera.rotation.y += (Math.random() - 0.5) * 0.03 * sh;
-      this.camera.position.y += (Math.random() - 0.5) * 3 * sh;
+      const t = this.time * 22, a = Math.min(1, sh) * sh;
+      this.camera.rotation.x += noise(t, 1) * 0.022 * a;
+      this.camera.rotation.y += noise(t, 2) * 0.022 * a;
+      this.camera.rotation.z += noise(t, 3) * 0.03 * a;
+      this.camera.position.y += noise(t, 4) * 2.2 * a;
     }
-    this.effects.shake = Math.max(0, sh - dt * 3.5);
+    this.effects.shake = Math.max(0, sh - dt * 2.8);
     this.sky.position.copy(this.camera.position);
     this.atmosphere.update(dt, this.camera.position, this.time);
 
@@ -638,10 +683,6 @@ export class Session {
         p.stepDist = (p.stepDist || 0) + Math.hypot(p.ps.velocity[0], p.ps.velocity[2]) * dt;
         if (p.stepDist > 90) { p.stepDist = 0; this.audio.play('step', [pos[0], pos[1] - 24, pos[2]], { volume: 0.5 }); }
       }
-    }
-    if (me.alive && me.ps.onGround) {
-      me.stepDist = (me.stepDist || 0) + Math.hypot(me.ps.velocity[0], me.ps.velocity[2]) * dt;
-      if (me.stepDist > 90) { me.stepDist = 0; this.audio.play('step', null, { volume: 0.18 }); }
     }
     // projectiles
     for (const v of this.projViews.values()) {
@@ -697,7 +738,12 @@ export class Session {
     const dyaw = angleDiff(this.input.yaw, this.lastYaw), dpitch = this.input.pitch - this.lastPitch;
     this.lastYaw = this.input.yaw; this.lastPitch = this.input.pitch;
     if (this.net && me.alive) this.viewWeapon.setWeapon(me.weapon);   // server-side switches (pickups, out of ammo)
-    this.viewWeapon.update(dt, speed, me.ps.onGround, dyaw, dpitch, light, this.settings);
+    const vr = [0, 0, 0], vf = [0, 0, 0];
+    angleVectors(0, this.input.yaw, vf, vr);
+    const v = me.ps.velocity;
+    this.viewWeapon.update(dt, speed, me.ps.onGround, dyaw, dpitch, light, this.settings, {
+      side: v[0] * vr[0] + v[2] * vr[2], fwd: v[0] * vf[0] + v[2] * vf[2], up: v[1], walk: this.walk, ducked: me.ps.ducked,
+    });
     this.viewWeapon.render(R, aspect, me.alive && gunFor(this.settings, this.viewWeapon.current).gunVisible && g.state !== 'intermission');
     if (this.settings.graphics?.bloom) this.glow.apply(0.55);
 
@@ -740,6 +786,9 @@ export class Session {
     if (k <= 0.02) return;
     const c = this.cam, left = c.landT < 0.35 ? c.landAmt : 0;
     c.landT = 0; c.landAmt = Math.max(left, 1.5 + k * 7);
+    // a hard landing also jolts: the head tips to one side and the impact rattles the view
+    c.landRoll += (Math.random() < 0.5 ? -1 : 1) * k * 1.4 * DEG;
+    c.trauma = Math.min(1, c.trauma + k * 0.35);
   }
 
   // subtle view motion, purely visual (the aim never moves): landing dip, jump nudge, recoil
@@ -764,19 +813,53 @@ export class Session {
     c.kickP += c.kickV * dt;
     c.kickY *= Math.exp(-dt * 12);
     pitch += c.kickP;
+    // shot push: the eye is shoved back along the line of sight and springs forward again
+    c.pushV -= c.pushP * 180 * dt;
+    c.pushV *= Math.exp(-dt * 18);
+    c.pushP += c.pushV * dt;
     // run roll: lean a touch into the strafe (Q3 cg_runroll), damage roll decays
-    let roll = 0;
+    let roll = 0, yawOff = c.kickY;
     if (me.alive) {
       const r = [0, 0, 0], f = [0, 0, 0];
       angleVectors(0, yaw, f, r);
-      const side = me.ps.velocity[0] * r[0] + me.ps.velocity[2] * r[2];
+      const vx = me.ps.velocity[0], vz = me.ps.velocity[2];
+      const side = vx * r[0] + vz * r[2], fwd = vx * f[0] + vz * f[2];
       const target = Math.max(-1.2, Math.min(1.2, -side * 0.0035 * (me.ps.onGround ? 1 : 0.4))) * DEG;
       c.roll += (target - c.roll) * Math.min(1, dt * 8);
       roll = c.roll;
+      // inertia: speeding up tips the head back, braking pitches it forward, and a sideways shove
+      // (or a tight air-strafe curve) leans it; acceleration = velocity minus its smoothed self
+      const sm = Math.min(1, dt * 7);
+      c.sv[0] += (vx - c.sv[0]) * sm; c.sv[1] += (vz - c.sv[1]) * sm;
+      const ax = (vx - c.sv[0]) * 7, az = (vz - c.sv[1]) * 7;
+      const aSide = ax * r[0] + az * r[2], aFwd = ax * f[0] + az * f[2];
+      const lp = Math.max(-1.1, Math.min(1.1, aFwd * 0.0003)), lr = Math.max(-1.2, Math.min(1.2, -aSide * 0.00025));
+      c.lean[0] += (lp - c.lean[0]) * Math.min(1, dt * 10);
+      c.lean[1] += (lr - c.lean[1]) * Math.min(1, dt * 10);
+      pitch += c.lean[0];
+      roll += c.lean[1] * DEG;
+      // head bob, in step with the gun and the footsteps: the eye drops on each footfall and the
+      // head rolls toward the foot carrying the weight (viewBob off keeps the head steady)
+      const want = me.ps.onGround && this.settings.viewBob !== false ? Math.min(hspeedOf(me), 420) / 320 : 0;
+      c.bobAmt += (want - c.bobAmt) * Math.min(1, dt * (want > c.bobAmt ? 6 : 4));
+      const ph = Math.PI * this.walk / 90, low = 1 - Math.abs(Math.sin(ph));
+      dy -= low * 0.9 * c.bobAmt;
+      pitch -= low * 0.18 * c.bobAmt;
+      roll += Math.cos(ph) * 0.3 * c.bobAmt * DEG;
     }
     c.hurtRoll *= Math.exp(-dt * 7);
-    roll += c.hurtRoll;
-    return { dy: dy * amt, pitch: pitch * amt, yaw: c.kickY * amt, roll: roll * amt };
+    c.landRoll *= Math.exp(-dt * 6);
+    c.kickR *= Math.exp(-dt * 11);
+    roll += c.hurtRoll + c.landRoll + c.kickR;
+    // trauma (hits, hard landings): a short, smooth rattle that falls off quickly
+    c.trauma = Math.max(0, c.trauma - dt * 2.2);
+    if (c.trauma > 0) {
+      const t = this.time * 18, a = c.trauma * c.trauma;
+      pitch += noise(t, 11) * 1.4 * a;
+      yawOff += noise(t, 12) * 1.4 * a;
+      roll += noise(t, 13) * 2 * a * DEG;
+    }
+    return { dy: dy * amt, pitch: pitch * amt, yaw: yawOff * amt, roll: roll * amt, push: c.pushP * amt };
   }
 
   // end-of-match XP / level panel (both modes)
@@ -787,7 +870,10 @@ export class Session {
   }
 }
 
-const _ld = new THREE.Vector3(), _iq = new THREE.Quaternion();
+const _ld = new THREE.Vector3(), _iq = new THREE.Quaternion(), _fw = new THREE.Vector3();
+// smooth noise in [-1, 1]: a few incommensurate sines, a different pattern per seed
+function noise(t, seed) { return Math.sin(t + seed * 12.9) * 0.5 + Math.sin(t * 2.31 + seed * 7.3) * 0.3 + Math.sin(t * 4.77 + seed * 3.1) * 0.2; }
+function hspeedOf(p) { return Math.hypot(p.ps.velocity[0], p.ps.velocity[2]); }
 function norm(v) { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
 function frame() { return new Promise((r) => requestAnimationFrame(() => r())); }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }

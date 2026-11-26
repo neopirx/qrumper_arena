@@ -10,6 +10,7 @@ const spawnCache = new WeakMap(); // spawn point -> free hull origin (or null)
 
 export const TICK = 1 / 125;
 const GRAVITY = 800;  // g_gravity, same as pmove
+const WEAPON_MODS = new Set(['mg', 'sg', 'gl', 'gl_splash', 'rl', 'rl_splash', 'rg']);
 export const GIB_HEALTH = -40;   // Q3 GIB_HEALTH: a kill that leaves the body this far below zero blows it apart
 const MULTIKILL_WINDOW = 3;      // seconds between frags that still chain a multi kill (UT style)
 const MULTI_AWARDS = [null, null, 'double', 'triple', 'quad', 'monster'];
@@ -68,7 +69,7 @@ export class Game {
       spawnTime: 0,
       history: [],
       // awards: multi kill chain, consecutive rail hits, who fragged us last (revenge)
-      lastKillTime: -10, multi: 0, railStreak: 0, nemesis: null, deathStreak: 0,
+      lastKillTime: -10, multi: 0, railStreak: 0, nemesis: null, deathStreak: 0, streak: 0,
     };
     if (p.id >= nextId) nextId = p.id + 1;
     this.players.push(p);
@@ -570,6 +571,8 @@ export class Game {
       } else { targ.frags--; killer = null; }
     } else { killer.frags++; killer.kills++; }
     targ.multi = 0;
+    const victimStreak = targ.streak || 0;
+    targ.streak = 0;
     // died N times in a row without fragging anyone: the announcer rubs it in every third death
     if (++targ.deathStreak % 3 === 0 && this.state === 'playing') this.emit({ type: 'award', player: targ.id, award: 'deathstreak', xp: 0 });
     const gib = targ.health <= GIB_HEALTH;
@@ -577,10 +580,29 @@ export class Game {
       // multi kills chain while frags keep coming within the window (UT)
       killer.multi = this.time - killer.lastKillTime <= MULTIKILL_WINDOW ? killer.multi + 1 : 1;
       killer.lastKillTime = this.time;
+      const killerDeaths = killer.deathStreak;
       killer.deathStreak = 0;
+      killer.streak = (killer.streak || 0) + 1;
       if (this.state === 'playing') {
         killer.xp += XP.kill;
         this.award(killer, 'kill', { victim: targ.id, xp: XP.kill });
+        if (!this.firstBlood) { this.firstBlood = true; this.award(killer, 'firstblood', { victim: targ.id }); }
+        // knocked into the void / a hazard by this killer
+        if (mod === 'void') this.award(killer, 'void', { victim: targ.id });
+        if (mod === 'lava' || mod === 'slime') this.award(killer, mod, { victim: targ.id });
+        // a direct hit on a target well off the ground
+        if ((mod === 'rl' || mod === 'gl' || mod === 'rg') && !targ.ps.onGround) {
+          const o = targ.ps.origin;
+          if (this.col.trace(o, [o[0], o[1] - 64, o[2]], PLAYER_MINS, PLAYER_MAXS, MASK_PLAYER).fraction >= 1) this.award(killer, 'midair', { victim: targ.id });
+        }
+        // in the victim's face
+        if (WEAPON_MODS.has(mod)) {
+          const a = killer.ps.origin, b = targ.ps.origin;
+          if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < 96) this.award(killer, 'pointblank', { victim: targ.id });
+        }
+        // ended a 5+ frag streak; broke your own 3+ death streak
+        if (victimStreak >= 5) this.award(killer, 'shutdown', { victim: targ.id, streak: victimStreak });
+        if (killerDeaths >= 3) this.award(killer, 'comeback', { victim: targ.id });
         if (mod === 'telefrag') this.award(killer, 'telefrag', { victim: targ.id });
         const award = MULTI_AWARDS[Math.min(killer.multi, MULTI_AWARDS.length - 1)];
         if (award) this.award(killer, award, { count: killer.multi });

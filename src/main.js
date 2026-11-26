@@ -133,7 +133,7 @@ for (const id of Object.keys(fmt)) {
 }
 for (const id of Object.keys(outputs)) outputs[id]();
 applyMenuScale();
-const CHECKS = ['invertMouse', 'speedometer', 'walljumpOnJump', 'autoSwitch', 'gunVisible', 'bob', 'hitSounds', 'showFps', 'weaponBarAlways', 'gore', 'announcer', 'zoomToggle', 'doubleJump'];
+const CHECKS = ['invertMouse', 'speedometer', 'walljumpOnJump', 'autoSwitch', 'gunVisible', 'bob', 'viewBob', 'speedFov', 'hitSounds', 'showFps', 'weaponBarAlways', 'gore', 'announcer', 'zoomToggle', 'doubleJump'];
 const syncChecks = () => { for (const id of CHECKS) $(id).checked = !!target(id)[id]; };
 for (const id of CHECKS) {
   const el = $(id);

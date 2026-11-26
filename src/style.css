@@ -364,12 +364,10 @@ body:not(.ingame) #hud { display: none; }
 /* ---------- badges, XP, zoom, results ---------- */
 .hud-badges { position: absolute; left: 50%; top: calc(var(--u) * 16); transform: translateX(-50%); display: flex; gap: calc(var(--u) * 20); align-items: flex-start; }
 .hud-badges .badge { display: flex; flex-direction: column; align-items: center; gap: calc(var(--u) * 2); animation: badge-in 0.32s cubic-bezier(0.2, 1.6, 0.4, 1); transition: opacity 0.4s, transform 0.4s; }
-.hud-badges .badge img { width: calc(var(--u) * 124); height: calc(var(--u) * 124); filter: drop-shadow(0 0 calc(var(--u) * 10) rgba(255, 90, 30, 0.75)) drop-shadow(0 calc(var(--u) * 2) calc(var(--u) * 2) #000); }
-.hud-badges .badge i { width: calc(var(--u) * 20); height: calc(var(--u) * 124); }
-.hud-badges .badge b { font-size: calc(var(--u) * 21); font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; -webkit-text-stroke: calc(var(--u) * 1) #000; paint-order: stroke fill; white-space: nowrap; }
+.hud-badges .badge img { width: calc(var(--u) * 150); height: calc(var(--u) * 150); filter: drop-shadow(0 0 calc(var(--u) * 10) rgba(255, 90, 30, 0.75)) drop-shadow(0 calc(var(--u) * 2) calc(var(--u) * 2) #000); }
+.hud-badges .badge i { width: calc(var(--u) * 20); height: calc(var(--u) * 150); }
+.hud-badges .badge b { font-size: calc(var(--u) * 23); font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #fff; -webkit-text-stroke: calc(var(--u) * 1) #000; paint-order: stroke fill; white-space: nowrap; }
 .hud-badges .badge small { font-size: calc(var(--u) * 15); font-weight: 800; color: var(--accent2); letter-spacing: 0.08em; }
-.hud-badges .badge.small img { width: calc(var(--u) * 86); height: calc(var(--u) * 86); }
-.hud-badges .badge.small b { font-size: calc(var(--u) * 17); }
 .hud-badges .badge.out { opacity: 0; transform: translateY(calc(var(--u) * -14)); }
 @keyframes badge-in { from { transform: scale(2.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .hud-xp { position: absolute; right: calc(var(--u) * 18); top: calc(var(--u) * 70); display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--u) * 3); font-size: calc(var(--u) * 15); font-weight: 700; }

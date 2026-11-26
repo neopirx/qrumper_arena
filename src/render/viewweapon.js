@@ -15,7 +15,35 @@ const OFFSETS = {
   rl: [9, -9.5, -30, 24],
   rg: [8.5, -8.75, -31, 25],
 };
-const KICK = { mg: 0.25, sg: 1.2, gl: 1.0, rl: 1.2, rg: 1.5 };
+// recoil per shot: how far the gun slams back (z), lifts (y), how much the muzzle climbs (pitch,
+// radians) and twists (roll / yaw, random side); `k` is the spring stiffness: light guns snap back,
+// heavy ones shove the hand and settle slowly
+const RECOIL = {
+  mg: { z: 0.9, y: 0.15, pitch: 0.035, roll: 0.03, yaw: 0.012, k: 520 },
+  sg: { z: 4.2, y: 0.9, pitch: 0.2, roll: 0.09, yaw: 0.03, k: 170 },
+  gl: { z: 3.0, y: 0.7, pitch: 0.15, roll: 0.06, yaw: 0.02, k: 190 },
+  rl: { z: 4.8, y: 1.1, pitch: 0.17, roll: 0.07, yaw: 0.03, k: 120 },
+  rg: { z: 5.2, y: 1.0, pitch: 0.26, roll: 0.12, yaw: 0.04, k: 140 },
+};
+// damped spring (per axis): pulls x toward target; zeta < 1 overshoots a little, which reads as mass
+class Spring {
+  constructor(k, zeta = 0.65) { this.x = 0; this.v = 0; this.set(k, zeta); }
+  set(k, zeta = 0.65) { this.k = k; this.d = 2 * Math.sqrt(k) * zeta; }
+  // an impulse that peaks at roughly `amount`
+  punch(amount) { this.v += amount * Math.sqrt(this.k) * 1.9; }
+  step(dt, target = 0) {
+    // fixed sub-steps: stable at any frame rate, even for the stiff machinegun spring
+    let t = Math.min(dt, 0.1);
+    while (t > 0) {
+      const h = Math.min(t, 1 / 240);
+      this.v += (this.k * (target - this.x) - this.d * this.v) * h;
+      this.x += this.v * h;
+      t -= h;
+    }
+    return this.x;
+  }
+}
+const springs = (k, zeta) => ({ x: new Spring(k, zeta), y: new Spring(k, zeta), z: new Spring(k, zeta) });
 
 export class ViewWeapon {
   constructor(assets, starTex) {
@@ -57,11 +85,17 @@ export class ViewWeapon {
     this.current = null;
     this.switchT = 1;
     this.pending = null;
-    this.kick = 0;
-    this.bobT = 0;
-    this.swayX = 0; this.swayY = 0;
     this.flashT = 0;
-    this.landDip = 0;
+    // motion: `pos` / `rot` carry sway, movement lag, landings and flinches; `recoilPos` /
+    // `recoilRot` carry the shots, with per-weapon stiffness
+    this.pos = springs(90, 0.55);
+    this.rot = springs(110, 0.5);
+    this.recoilPos = springs(300, 0.6);
+    this.recoilRot = springs(300, 0.55);
+    this.walk = 0;          // distance walked on the ground (drives the bob when the session doesn't)
+    this.bobAmt = 0;        // smoothed bob strength
+    this.time = 0;
+    this.wasGround = true;
   }
 
   setWeapon(id) {
@@ -73,7 +107,8 @@ export class ViewWeapon {
   // respawn: drop whatever was held (it stays visible otherwise) and raise the spawn weapon
   reset(id) {
     for (const m of Object.values(this.models)) m.visible = false;
-    this.current = null; this.pending = null; this.kick = 0; this.flashT = 0;
+    this.current = null; this.pending = null; this.flashT = 0;
+    for (const g of [this.pos, this.rot, this.recoilPos, this.recoilRot]) for (const a of 'xyz') { g[a].x = 0; g[a].v = 0; }
     if (id) this.setWeapon(id);
   }
 
@@ -84,7 +119,17 @@ export class ViewWeapon {
   }
 
   fire(id) {
-    this.kick = Math.min(2, this.kick + (KICK[id] ?? 0.5));
+    const r = RECOIL[id] || RECOIL.mg;
+    const P = this.recoilPos, R = this.recoilRot, sgn = Math.random() < 0.5 ? -1 : 1;
+    for (const g of [P, R]) for (const a of 'xyz') g[a].set(r.k, 0.6);
+    // keep sustained fire bounded: the machinegun shakes, it doesn't climb off the screen
+    const room = (cur, max) => Math.max(0.25, 1 - Math.abs(cur) / max);
+    P.z.punch(r.z * room(P.z.x, r.z * 2.5));
+    P.y.punch(r.y * room(P.y.x, r.y * 2.5));
+    P.x.punch(sgn * r.z * 0.08);
+    R.x.punch(r.pitch * room(R.x.x, r.pitch * 2.5));
+    R.z.punch(sgn * r.roll * (0.6 + Math.random() * 0.4));
+    R.y.punch((Math.random() - 0.5) * 2 * r.yaw);
     this.flashT = id === 'rg' ? 0.09 : id === 'mg' ? 0.045 : 0.06;
     this.flashLife = this.flashT;
     this.flashId = id;
@@ -95,19 +140,41 @@ export class ViewWeapon {
     this.petalRot = Math.random() * Math.PI;
   }
 
-  land(strength) { this.landDip = Math.min(1.5, this.landDip + strength); }
+  // landing: the gun keeps falling for a moment, the muzzle dips, then it bounces back up
+  land(strength) {
+    strength = Math.min(1.5, strength);
+    this.pos.y.punch(-2.2 * strength);
+    this.rot.x.punch(-0.09 * strength);
+    this.rot.z.punch((Math.random() - 0.5) * 0.06 * strength);
+  }
+  // take-off: the legs push, the gun lags down
+  jump() {
+    this.pos.y.punch(-1.1);
+    this.rot.x.punch(-0.05);
+  }
+  // hit: knocked to one side (side: -1 left, 1 right), harder for bigger hits
+  hurt(damage, side) {
+    const k = Math.min(1.5, damage / 40);
+    this.pos.x.punch(-side * 1.4 * k);
+    this.pos.y.punch(-0.9 * k);
+    this.rot.z.punch(side * 0.12 * k);
+    this.rot.x.punch(0.05 * k);
+  }
 
-  update(dt, speed, onGround, yawDelta, pitchDelta, light, settings) {
+  // motion (optional, from the session): view-space velocity { side, fwd, up }, `walk` distance
+  // (shared with the camera bob and footsteps so the gun lands on every step) and `ducked`
+  update(dt, speed, onGround, yawDelta, pitchDelta, light, settings, motion = null) {
+    this.time += dt;
     // switching: drop the old weapon, raise the new one
     if (this.pending) {
-      this.switchT -= dt * 9;
+      this.switchT -= dt * 7;
       if (this.switchT <= 0) {
         this.models[this.current].visible = false;
         this.current = this.pending; this.pending = null;
         this.models[this.current].visible = true;
         this.switchT = 0;
       }
-    } else this.switchT = Math.min(1, this.switchT + dt * 7);
+    } else this.switchT = Math.min(1, this.switchT + dt * 4.5);
     if (!this.current) return;
     settings = gunFor(settings, this.current);   // per-weapon placement overrides
     const m = this.models[this.current];
@@ -119,27 +186,61 @@ export class ViewWeapon {
     const size = settings.gunSize ?? 1;
     m.scale.set(m.userData.baseScale * size * side, m.userData.baseScale * size, m.userData.baseScale * size);
 
-    if (settings.bob && onGround) this.bobT += dt * Math.min(speed, 450) / 320 * 9;
-    const bobAmt = settings.bob ? Math.min(speed, 400) / 400 : 0;
-    const bx = Math.sin(this.bobT) * 0.5 * bobAmt, by = -Math.abs(Math.cos(this.bobT)) * 0.4 * bobAmt;
-    this.swayX += (-yawDelta * 0.04 - this.swayX) * Math.min(1, dt * 8);
-    this.swayY += (pitchDelta * 0.04 - this.swayY) * Math.min(1, dt * 8);
-    this.swayX = Math.max(-1.5, Math.min(1.5, this.swayX));
-    this.swayY = Math.max(-1.5, Math.min(1.5, this.swayY));
-    this.kick = Math.max(0, this.kick - dt * 8);
-    this.landDip = Math.max(0, this.landDip - dt * 5);
-    const drop = (1 - easeOut(this.switchT)) * 10;
-    // depth slides the gun along the line of sight: its base screen position stays put, so pulling
-    // it close makes it bigger instead of sinking it out of the bottom of the view
+    // bob: a figure-of-eight tied to the footsteps: lowest (with a hard bottom) as each foot lands,
+    // swinging toward the foot that carries the weight
+    if (motion?.walk != null) this.walk = motion.walk;
+    else if (onGround) this.walk += speed * dt;
+    const wantBob = settings.bob && onGround ? Math.min(speed, 420) / 320 : 0;
+    this.bobAmt += (wantBob - this.bobAmt) * Math.min(1, dt * (wantBob > this.bobAmt ? 6 : 4));
+    const ph = Math.PI * this.walk / 90;
+    const b = this.bobAmt;
+    const bx = Math.cos(ph) * 0.55 * b;
+    const by = -(1 - Math.abs(Math.sin(ph))) * 0.55 * b + 0.15 * b;
+    const bRoll = Math.cos(ph) * 0.025 * b, bPitch = -(1 - Math.abs(Math.sin(ph))) * 0.02 * b;
+    // breathing while standing still
+    const idle = settings.bob ? Math.max(0, 1 - b) : 0;
+    const ix = Math.sin(this.time * 0.9) * 0.18 * idle, iy = Math.sin(this.time * 1.8) * 0.12 * idle;
+    const iRoll = Math.sin(this.time * 0.7 + 1) * 0.008 * idle;
+
+    // look sway: turning drags the gun behind the view (an impulse per degree turned, so it
+    // doesn't depend on frame rate); the springs swing it back with a little overshoot
+    const yd = Math.max(-12, Math.min(12, yawDelta)), pd = Math.max(-12, Math.min(12, pitchDelta));
+    this.pos.x.v += yd * 0.6; this.pos.y.v -= pd * 0.5;
+    this.rot.y.v -= yd * 0.03; this.rot.x.v -= pd * 0.03; this.rot.z.v += yd * 0.022;
+
+    // movement lag: strafing leans the gun and leaves it behind, running forward pulls it in,
+    // rising sinks it and falling lets it float up
+    const vs = motion?.side || 0, vf = motion?.fwd || 0, vu = onGround ? 0 : motion?.up || 0;
+    const clamp = (v, a) => Math.max(-a, Math.min(a, v));
+    const duck = motion?.ducked ? 1 : 0;
+    const tx = clamp(-vs * 0.0035, 1.4);
+    const ty = clamp(-vu * 0.003, 1.6) - duck * 0.8;
+    const tz = clamp(vf * 0.003, 1.2);
+    const trz = clamp(-vs * 0.00018, 0.08) + duck * 0.05 * side;
+    const trx = clamp(-vu * 0.00012, 0.06);
+    const px = clamp(this.pos.x.step(dt, tx), 3), py = clamp(this.pos.y.step(dt, ty), 4), pz = this.pos.z.step(dt, tz);
+    const rx = clamp(this.rot.x.step(dt, trx), 0.2), ry = clamp(this.rot.y.step(dt, 0), 0.15), rz = clamp(this.rot.z.step(dt, trz), 0.2);
+    const P = this.recoilPos, R = this.recoilRot;
+    const kx = P.x.step(dt), ky = P.y.step(dt), kz = P.z.step(dt);
+    const kp = R.x.step(dt), kyaw = R.y.step(dt), kr = R.z.step(dt);
+
+    // switching: the old gun drops and turns away, the new one swings up and settles past its rest
+    const sw = this.pending ? easeIn(this.switchT) : easeOutBack(this.switchT);
+    const drop = (1 - sw) * 11;
     const zBase = off[2] - (settings.gunZ || 0);
     const k = zBase / off[2];
-    const x = baseX * k + (settings.gunX || 0) + bx - this.swayX;
-    const y = off[1] * k + (settings.gunY || 0) + by - drop - this.swayY - this.landDip;
-    const z = zBase + this.kick * 1.6;
+    const x = baseX * k + (settings.gunX || 0) + bx + ix + px + kx + drop * 0.15 * side;
+    const y = off[1] * k + (settings.gunY || 0) + by + iy - drop + py + ky;
+    const z = zBase + pz + kz;
     m.position.set(x, y, z);
     // tilt: positive turns the muzzle in toward the crosshair
     const tilt = (settings.gunTilt || 0) * Math.PI / 180;
-    m.rotation.set(this.kick * 0.06 + drop * 0.04, (-0.04 + tilt) * (hand === 'center' ? 0 : side), 0);
+    const sideK = hand === 'center' ? 1 : side;
+    m.rotation.set(
+      kp + rx + bPitch - drop * 0.05,
+      (-0.04 + tilt) * (hand === 'center' ? 0 : side) + ry + kyaw * sideK,
+      (kr + rz + bRoll + iRoll) * sideK + drop * 0.035 * sideK,
+    );
     this.flashT -= dt;
     const showFlash = this.flashT > 0 && !this.pending;
     this.flash.visible = this.flashGlow.visible = showFlash;
@@ -199,4 +300,6 @@ function glowTexture() {
 }
 // flame petal: hot at the muzzle (bottom of the texture), tapering into ragged tongues
 function petalTexture() { return flameTextures().tongue; }
-const easeOut = (t) => 1 - (1 - t) * (1 - t);
+const easeIn = (t) => t * t;
+// a raise that slightly overshoots its rest position before settling
+const easeOutBack = (t) => { const c = 1.4; t -= 1; return 1 + (c + 1) * t * t * t + c * t * t; };

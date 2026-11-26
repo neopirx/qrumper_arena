@@ -8,6 +8,7 @@ export const XP = {
   awards: {
     double: 50, triple: 100, quad: 175, monster: 300,
     precision: 75, headshot: 75, bounced: 75, gib: 50, telefrag: 100, revenge: 50,
+    midair: 75, void: 75, lava: 75, slime: 75, firstblood: 50, shutdown: 100, comeback: 50, pointblank: 50,
   },
 };
 
@@ -24,6 +25,14 @@ export const BADGES = {
   gib: { name: 'Gibbed', icon: 'gib' },
   headshot: { name: 'Headshot', icon: 'headshot' },
   revenge: { name: 'Revenge', icon: null },
+  midair: { name: 'Midair', icon: 'midair' },
+  void: { name: 'Void', icon: 'void' },
+  lava: { name: 'Lava', icon: 'lava' },
+  slime: { name: 'Slimed', icon: 'lava' },
+  firstblood: { name: 'First Blood', icon: 'firstblood' },
+  shutdown: { name: 'Shutdown', icon: 'shutdown' },
+  comeback: { name: 'Comeback', icon: 'comeback' },
+  pointblank: { name: 'Point Blank', icon: 'pointblank' },
 };
 
 // XP needed to go from `level` to `level + 1`

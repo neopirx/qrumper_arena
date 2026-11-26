@@ -27,7 +27,7 @@ const SAMPLES = {
   weapon: 'pick_up_weapon', switch: ['equip_weapon', 'equip_weapon02', 'equip_weapon03'], noammo: 'dry_fire',
   step: 'footstep', pain: ['grunt_dmg', 'grunt_dmg2'], jump: 'grunt_jump', land: 'jump_land', pad: 'jump_pad', tele: 'teleport',
   death: ['death_scream', 'death_scream02'], gib: 'gib_explode', flesh: 'FleshHit_BW.12166', bounce: 'nade_bounce',
-  healthRespawn: 'health_respawn', weaponRespawn: 'weapon_respawn',
+  healthRespawn: 'health_respawn', weaponRespawn: 'weapon_respawn', badge: 'badge',
 };
 // announcer lines: assets/audio/announcer/<file>.mp3, played 2D one after another (an array picks one)
 const ANNOUNCER = {
