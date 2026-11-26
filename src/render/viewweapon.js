@@ -15,15 +15,15 @@ const OFFSETS = {
   rl: [9, -9.5, -30, 24],
   rg: [8.5, -8.75, -31, 25],
 };
-// recoil per shot: how far the gun slams back (z), lifts (y), how much the muzzle climbs (pitch,
-// radians) and twists (roll / yaw, random side); `k` is the spring stiffness: light guns snap back,
-// heavy ones shove the hand and settle slowly
+// recoil per shot: horizontal only. How far the gun slams straight back (z) and twists (roll / yaw,
+// random side); the barrel never lifts or climbs. `k` is the spring stiffness: light guns snap
+// back, heavy ones shove the hand and settle slowly
 const RECOIL = {
-  mg: { z: 0.9, y: 0.15, pitch: 0.035, roll: 0.03, yaw: 0.012, k: 520 },
-  sg: { z: 4.2, y: 0.9, pitch: 0.2, roll: 0.09, yaw: 0.03, k: 170 },
-  gl: { z: 3.0, y: 0.7, pitch: 0.15, roll: 0.06, yaw: 0.02, k: 190 },
-  rl: { z: 4.8, y: 1.1, pitch: 0.17, roll: 0.07, yaw: 0.03, k: 120 },
-  rg: { z: 5.2, y: 1.0, pitch: 0.26, roll: 0.12, yaw: 0.04, k: 140 },
+  mg: { z: 1.0, roll: 0.03, yaw: 0.012, k: 520 },
+  sg: { z: 4.8, roll: 0.09, yaw: 0.03, k: 170 },
+  gl: { z: 3.5, roll: 0.06, yaw: 0.02, k: 190 },
+  rl: { z: 5.5, roll: 0.07, yaw: 0.03, k: 120 },
+  rg: { z: 6.0, roll: 0.12, yaw: 0.04, k: 140 },
 };
 // damped spring (per axis): pulls x toward target; zeta < 1 overshoots a little, which reads as mass
 class Spring {
@@ -122,12 +122,10 @@ export class ViewWeapon {
     const r = RECOIL[id] || RECOIL.mg;
     const P = this.recoilPos, R = this.recoilRot, sgn = Math.random() < 0.5 ? -1 : 1;
     for (const g of [P, R]) for (const a of 'xyz') g[a].set(r.k, 0.6);
-    // keep sustained fire bounded: the machinegun shakes, it doesn't climb off the screen
+    // keep sustained fire bounded: the machinegun shakes, it doesn't slide off the screen
     const room = (cur, max) => Math.max(0.25, 1 - Math.abs(cur) / max);
     P.z.punch(r.z * room(P.z.x, r.z * 2.5));
-    P.y.punch(r.y * room(P.y.x, r.y * 2.5));
     P.x.punch(sgn * r.z * 0.08);
-    R.x.punch(r.pitch * room(R.x.x, r.pitch * 2.5));
     R.z.punch(sgn * r.roll * (0.6 + Math.random() * 0.4));
     R.y.punch((Math.random() - 0.5) * 2 * r.yaw);
     this.flashT = id === 'rg' ? 0.09 : id === 'mg' ? 0.045 : 0.06;

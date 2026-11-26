@@ -30,7 +30,7 @@ const WARMUP = 8;
 const PODIUM_AT = 7, NEXT_IN = 30;
 // announcer lines that have a recording (see ANNOUNCER in audio.js)
 const SPOKEN = new Set(['double', 'triple', 'quad', 'monster', 'precision', 'revenge', 'telefrag', 'deathstreak', 'dismembered', 'mutilated']);
-// view kick per shot (degrees of pitch), Q3 cg.kick_angles style: visual only, the aim doesn't move
+// view kick per shot: a small random sideways nudge (no vertical kick), visual only, the aim doesn't move
 const VIEW_KICK = { mg: 0.35, sg: 1.7, gl: 1.0, rl: 1.4, rg: 2.1 };
 // heavier shots also twist the view (roll, degrees), punch the FOV out (degrees) and shove the
 // eye back along the line of sight (units)
@@ -364,7 +364,6 @@ export class Session {
           if (isMe) {
             fx.light(e.pos, w.color, w.id === 'mg' ? 120 : 200, 0.06, { intensity: 1.1 });
             this.viewWeapon.fire(e.weapon);
-            this.cam.kickV += (VIEW_KICK[e.weapon] ?? 0.5) * 16;
             this.cam.kickY += (Math.random() - 0.5) * (VIEW_KICK[e.weapon] ?? 0.5) * 0.25;
             const h = VIEW_HEFT[e.weapon];
             if (h) {
