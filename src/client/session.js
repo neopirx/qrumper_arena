@@ -138,7 +138,7 @@ export class Session {
     this.input = new Input(this.renderer.domElement, this.settings);
     this.input.onUnlock = () => { if (this.running && !this.paused) this.pause(); };
     this.input.yaw = me.ps.yaw; this.input.pitch = 0;
-    this.viewWeapon.setWeapon('mg');
+    this.viewWeapon.setWeapon(game.spawnWeapon);
     game.events.length = 0;
     this.applyGraphics();
     progress(1, 'Ready');
@@ -349,7 +349,7 @@ export class Session {
       const isMe = p === me;
       switch (e.type) {
         case 'spawn': {
-          if (isMe) { this.input.yaw = e.yaw; this.input.pitch = 0; this.viewWeapon.reset('mg'); this.cam.sv = [0, 0]; this.cam.trauma = 0; this.hud.deathMsg = null; this.hud.clearDamage(); this.zoomToggled = false; }
+          if (isMe) { this.input.yaw = e.yaw; this.input.pitch = 0; this.viewWeapon.reset(g.spawnWeapon); this.cam.sv = [0, 0]; this.cam.trauma = 0; this.hud.deathMsg = null; this.hud.clearDamage(); this.zoomToggled = false; }
           else if (p) { p.alive = true; const m = this.models.get(p.id); if (m) { m.revive(); m.root.visible = true; } }
           if (p) p.prev = [...p.ps.origin];
           fx.sparkle(e.pos, 0x80c0ff, 30, 30);

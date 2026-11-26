@@ -594,11 +594,13 @@ profile.init().then(() => {
 show('p-main');
 if (!autostart) audio.playMusic('menu');
 
-// dev hook: ?autostart=<map>&bots=N&skill=N
+// dev hook: ?autostart=<map>&bots=N&skill=N&mode=duel&instagib=1
 const qs = new URLSearchParams(location.search);
 if (qs.get('autostart')) {
   settings.map = qs.get('autostart');
   if (qs.get('bots')) settings.bots = +qs.get('bots');
   if (qs.get('skill')) settings.skill = +qs.get('skill');
+  if (qs.get('mode')) settings.mode = qs.get('mode');
+  if (qs.has('instagib')) settings.instagib = qs.get('instagib') === '1';
   startMatch();
 }

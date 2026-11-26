@@ -51,6 +51,9 @@ export class Game {
 
   emit(e) { this.events.push(e); }
 
+  // the weapon everyone spawns holding
+  get spawnWeapon() { return this.instagib ? 'rg' : 'mg'; }
+
   // remote: the player's commands arrive over the network into cmdQueue (one is used per tick)
   addPlayer({ name, bot = null, color, id = null, spawn = true, remote = false, character = null, level = 1, profileId = null }) {
     const p = {
@@ -62,7 +65,7 @@ export class Game {
       ps: makePlayerState(),
       alive: false,
       health: 0, armor: 0,
-      weapons: {}, ammo: {}, weapon: 'mg', weaponTime: 0, switchTo: null, lastWeapon: 'mg',
+      weapons: {}, ammo: {}, weapon: this.spawnWeapon, weaponTime: 0, switchTo: null, lastWeapon: this.spawnWeapon,
       frags: 0, deaths: 0,
       respawnAt: 0,
       cmd: { forward: 0, side: 0, jump: false, crouch: false, attack: false, pitch: 0, yaw: 0, weapon: null, time: 0 },
@@ -146,10 +149,10 @@ export class Game {
     if (this.instagib) {
       p.health = 100;
       p.weapons = { rg: true }; p.ammo = { mg: 0, sg: 0, gl: 0, rl: 0, rg: INF_AMMO };
-      p.weapon = 'rg'; p.lastWeapon = 'rg';
+      p.weapon = p.lastWeapon = this.spawnWeapon;
     } else {
       p.weapons = { mg: true }; p.ammo = { mg: 100, sg: 0, gl: 0, rl: 0, rg: 0 };
-      p.weapon = 'mg'; p.lastWeapon = 'mg';
+      p.weapon = p.lastWeapon = this.spawnWeapon;
     }
     p.weaponTime = 250; p.switchTo = null;
     p.decayTimer = 0;
