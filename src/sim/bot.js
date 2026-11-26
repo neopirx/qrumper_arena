@@ -35,6 +35,9 @@ class Bot {
 
   onSpawn() { this.reset(); }
   onDeath() { this.path = null; }
+  // thrown by a jump pad: ride the arc hands-off, then pick a new route from wherever we land
+  onPad() { this.padFlight = true; }
+
   onTeleport() { this.path = null; this.nextGoal = this.game.time + 0.25; }
   onDamage(attacker, dmg) {
     if (attacker && attacker !== this.p && attacker.alive) {
@@ -193,6 +196,13 @@ class Bot {
     const p = this.p, ps = p.ps, cmd = p.cmd, g = this.game;
     cmd.jump = false; cmd.crouch = false;
     this.hopping = false;
+    if (this.padFlight) {
+      if (!ps.onGround || ps.velocity[1] > 0) return null;
+      this.padFlight = false;
+      // landed: the old path assumed a different flight, so re-plan from here
+      const nodes = this.nav.nodes, tgt = this.path && this.path[this.pathIdx] != null ? nodes[this.path[this.pathIdx]] : null;
+      if (!tgt || Math.hypot(tgt.p[0] - ps.origin[0], tgt.p[2] - ps.origin[2]) > 120) { this.path = null; this.nextGoal = this.game.time; return null; }
+    }
     if (!this.path || this.pathIdx >= this.path.length) { this.path = null; return null; }
     const nodes = this.nav.nodes;
     const feet = ps.origin[1] - 24.25;
@@ -227,10 +237,16 @@ class Bot {
     }
 
     // off course (fell, knocked back): repath
-    if (hd > 400 || feet - tgt.p[1] > 120 || (ps.onGround && tgt.p[1] - feet > 70)) { this.nextGoal = this.game.time + 0.25; this.path = null; return null; }
+    if (hd > 400 || feet - tgt.p[1] > 180 || (ps.onGround && tgt.p[1] - feet > 70)) { this.nextGoal = this.game.time + 0.25; this.path = null; return null; }
 
     const nl = this.pathIdx > 0 ? this.nav.linkType(this.path[this.pathIdx - 1], this.path[this.pathIdx]) : 'walk';
     if (nl === 'jump' && ps.onGround && hd < 70) cmd.jump = true;
+    // leap: run at the gap and jump at the edge (when the floor ahead runs out)
+    if (nl === 'leap') {
+      this.hopping = false;
+      if (ps.onGround && !this.safeGround((tgt.p[0] - ps.origin[0]) / (hd || 1), (tgt.p[2] - ps.origin[2]) / (hd || 1), 26)) cmd.jump = true;
+      if (!ps.onGround) { const dx = tgt.p[0] - ps.origin[0], dz = tgt.p[2] - ps.origin[2], l = Math.hypot(dx, dz) || 1; return [dx / l, dz / l, tgt]; }
+    }
 
     // stuck detection
     const sp = Math.hypot(ps.velocity[0], ps.velocity[2]);
@@ -268,6 +284,8 @@ class Bot {
   safeGround(dirx, dirz, reach = 48) {
     const ps = this.p.ps, col = this.game.col;
     const p = [ps.origin[0] + dirx * reach, ps.origin[1], ps.origin[2] + dirz * reach];
+    // a jump pad is not ground to dodge onto: it throws you somewhere you didn't choose
+    for (const pd of this.game.pads || []) if (p[0] > pd.min[0] - 16 && p[0] < pd.max[0] + 16 && p[2] > pd.min[2] - 16 && p[2] < pd.max[2] + 16 && Math.abs(ps.origin[1] - 24 - pd.at[1]) < 24) return false;
     const tr = col.trace(p, [p[0], p[1] - 80, p[2]], [-8, -24, -8], [8, 8, 8], MASK_PLAYER);
     return tr.fraction < 1 || tr.startsolid;
   }
@@ -350,6 +368,9 @@ class Bot {
         const onPath = wantItem && move[0] * ux + move[1] * uz > 0.8;
         if (!onPath && !this.safeGround(ux, uz, Math.min(120, 30 + vs * 0.25))) { mx = -ux + sx * 0.3; mz = -uz + sz * 0.3; }
       }
+      // in the air (pad flights, falls, knockback) keep hands off the keys unless the path
+      // wants a steer (leaps): air control would carry us off our arc
+      if (!ps.onGround && (!move || this.padFlight)) { mx = 0; mz = 0; }
       // dodge jumps only where the landing (about 0.65 s of flight away) is solid
       if (ps.onGround && Math.random() < 0.004 + this.s * 0.008) {
         const v2 = Math.hypot(ps.velocity[0], ps.velocity[2]);

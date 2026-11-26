@@ -71,7 +71,8 @@ export class Hud {
         <div class="hud-click hidden" id="click">Click to play</div>
       </div>
       <div class="hud-scores hidden" id="scores"></div>
-      <div class="hud-results hidden" id="results"></div>`;
+      <div class="hud-results hidden" id="results"></div>
+      <div class="hud-end hidden" id="end"></div>`;
     this.$ = (id) => root.querySelector('#' + id);
     this.feed = [];
     this.centerT = 0; this.subT = 0; this.pickupT = 0; this.hitT = 0; this.damageT = 0; this.wbarT = 0;
@@ -162,6 +163,30 @@ export class Hud {
       ${badges ? `<div class="r-badges">${badges}</div>` : ''}
       ${L ? `<div class="r-level ${levelUp ? 'up' : ''}"><span class="lv">${L.level}</span><div class="bar"><div style="width:${Math.round(L.frac * 100)}%"></div></div><small>${L.into} / ${L.need} XP${levelUp ? ' · <b>LEVEL UP!</b>' : ''}</small></div>` : '<div class="r-line dim">Profile not saved (offline)</div>'}`;
     el.classList.remove('hidden');
+  }
+
+  // end of match overlay: the countdown to the next map with Quit / Next buttons, and (on the
+  // podium) name tags above the top three
+  endScreen(info) {
+    const el = this.$('end');
+    el.classList.remove('hidden');
+    el.classList.toggle('podium', info.podium);
+    if (!this.endBuilt) {
+      this.endBuilt = true;
+      el.innerHTML = `<div class="end-tags" id="endtags"></div><div class="end-title" id="endtitle"></div>
+        <div class="end-bar"><div class="end-next"><small>Next map</small><b id="endmap"></b></div>
+        <div class="end-count"><span id="endsec"></span><div class="end-prog"><i id="endprog"></i></div></div>
+        <div class="end-btns"><button class="btn" id="endquit">Quit to menu</button>${info.onNext ? '<button class="btn primary" id="endgo">Next match</button>' : ''}</div></div>`;
+      this.$('endquit').addEventListener('click', () => this.endInfo.onQuit());
+      if (info.onNext) this.$('endgo').addEventListener('click', () => this.endInfo.onNext());
+    }
+    this.endInfo = info;
+    this.set('endmap', 'text', info.next || '…');
+    this.set('endsec', 'text', info.left != null ? `Starting in ${Math.ceil(info.left)}s` : 'Waiting for the server');
+    if (info.left != null) this.$('endprog').style.width = (100 * (1 - info.left / info.total)).toFixed(1) + '%';
+    this.set('endtitle', 'html', info.podium ? `<small>Match over</small>${info.winner ? esc(info.winner) + ' wins' : 'Final standings'}` : '');
+    const tags = info.podium ? info.labels.map((l) => `<div class="end-tag p${l.place}${l.me ? ' me' : ''}" style="left:${(l.x * 100).toFixed(2)}%;top:${(l.y * 100).toFixed(2)}%;--pc:${hex(l.color)}"><i>${ORD(l.place)}</i><b>${esc(l.name)}</b><span>${l.frags} frag${l.frags === 1 ? '' : 's'}</span></div>`).join('') : '';
+    this.$('endtags').innerHTML = tags;
   }
 
   showWeapons() { this.wbarT = 1.8; }
@@ -298,7 +323,7 @@ export class Hud {
     const rows = rank.map((p, i) => `<tr class="${p === me ? 'me' : ''}${p.alive === false ? ' dead' : ''}"><td class="rk">${i + 1}</td><td class="nm"><span class="swatch" style="background:${p.colorCss}"></span><span class="lvl">${p.level || 1}</span>${esc(p.name)}</td><td class="sc">${p.frags}</td><td>${p.kills || 0}</td><td>${p.deaths}</td><td class="pg">${ping(p)}</td></tr>`).join('');
     const over = g.state === 'intermission';
     const title = over
-      ? `<h2>${g.winner ? esc(g.winner.name) + ' wins!' : 'Match over'}</h2><p class="hint">${online ? 'Back to the lobby in a few seconds · <b>Esc</b> for the menu' : 'Press <b>Esc</b> for the menu · <b>Enter</b> to play again'}</p>`
+      ? `<h2>${g.winner ? esc(g.winner.name) + ' wins!' : 'Match over'}</h2><p class="hint">${online ? 'The next map starts automatically · hold <b>Tab</b> for the scores' : '<b>Enter</b> for the next match now · hold <b>Tab</b> for the scores'}</p>`
       : `<h2>${esc(g.map.name)} — Free For All</h2><p class="hint">Fraglimit ${g.fraglimit}${g.timelimit ? ' · Timelimit ' + g.timelimit / 60 + ' min' : ''}</p>`;
     el.innerHTML = `${title}<table><thead><tr><th>#</th><th>Player</th><th>Score</th><th>Kills</th><th>Deaths</th><th>Ping</th></tr></thead><tbody>${rows}</tbody>
       <tfoot><tr><td></td><td>${rank.length} players</td><td></td><td>${totalKills}</td><td></td><td></td></tr></tfoot></table>`;

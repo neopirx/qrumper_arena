@@ -9,33 +9,54 @@ import { dynLights, shared } from './shared.js';
 
 const MAX_P = 6000;
 const MAX_S = 1600;
-// particle kinds (atlas cells); 0 is the plain procedural disc used by gore and debris
-export const PK = { DISC: 0, FIRE: 1, SMOKE: 2, SPARK: 3, GLOW: 4 };
+// particle kinds; each maps to one or more cells of the 4x4 noise atlas (variants picked per particle)
+// 0 is the plain procedural disc used by debris and droplets
+export const PK = { DISC: 0, FIRE: 1, SMOKE: 2, SPARK: 3, GLOW: 4, MIST: 5, SPRAY: 6, DUST: 7 };
+const CELLS = { 1: [4, 5, 6, 7], 2: [0, 1, 2, 3], 3: [8], 4: [9], 5: [10, 12, 13], 6: [11, 14], 7: [0, 1, 15] };
 const QUALITY = { low: 0.35, medium: 0.65, high: 1 };
 
 const particleVert = /* glsl */`
 attribute float size;
 attribute vec4 pcolor;
 attribute vec2 pinfo;
+attribute vec3 plit;
 varying vec4 vColor;
 varying vec2 vInfo;
+varying vec3 vLit;
 varying float vFog;
 uniform float scale;
 uniform float maxSize;
+uniform float lit;
+uniform vec4 dlPos[8];
+uniform vec3 dlCol[8];
+uniform int dlCount;
 void main() {
   vColor = pcolor;
   vInfo = pinfo;
+  // lit media (smoke, dust, mist) take the light grid sample at their spawn point plus the
+  // dynamic lights (explosions light their own smoke, muzzle flashes light the gun smoke)
+  vLit = plit;
+  if (lit > 0.5) {
+    for (int i = 0; i < 8; i++) {
+      if (i >= dlCount) break;
+      vec3 L = dlPos[i].xyz - position;
+      float a = max(0.0, 1.0 - length(L) / (dlPos[i].w * 1.15));
+      vLit += dlCol[i] * a * a * 1.6;
+    }
+  }
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   vFog = -mv.z;
   gl_PointSize = min(size * scale / max(1.0, -mv.z), maxSize);
   gl_Position = projectionMatrix * mv;
 }`;
-// additive: white-hot core, colour body, transparent rim. smoke: hard-edged puff with painted
-// top-left light (a discrete card, never a soft gas). Both respect the zone fog.
+// Additive (fire, sparks, glows): the noise cell's red channel is heat, mapped from the particle's
+// colour up to white-hot. Lit media: alpha is density, red is self-shadowing toward the light, so
+// a puff reads as a volume with a lit crown and a dark belly; soft edges, never a hard card.
 const particleFrag = /* glsl */`
 uniform sampler2D atlas;
 varying vec4 vColor;
 varying vec2 vInfo;
+varying vec3 vLit;
 varying float vFog;
 uniform float additive;
 uniform vec3 fogColor;
@@ -43,134 +64,275 @@ uniform float fogDensity;
 void main() {
   vec2 d = gl_PointCoord - 0.5;
   float f = 1.0 - exp(-fogDensity * vFog);
-  float kind = vInfo.x;
-  if (kind < 0.5) {
+  float cell = vInfo.x - 1.0;
+  if (cell < -0.5) {
     float r = length(d) * 2.0;
     if (r > 1.0) discard;
     if (additive > 0.5) {
       vec3 c = mix(vec3(1.0), vColor.rgb, smoothstep(0.0, 0.45, r));
-      float a = vColor.a * (1.0 - smoothstep(0.7, 0.9, r)) * (1.0 - r * 0.35);
-      gl_FragColor = vec4(c * a * (1.0 - f), 1.0);
+      float a = vColor.a * (1.0 - smoothstep(0.5, 1.0, r));
+      gl_FragColor = vec4(c * a * (1.0 - f), 0.0);
     } else {
-      float a = vColor.a * (1.0 - smoothstep(0.86, 0.96, r));
-      vec3 c = vColor.rgb * (1.08 - 0.4 * r);
-      c *= 1.0 + 0.25 * step(0.0, -d.y - d.x * 0.5) * (1.0 - r);
+      float a = vColor.a * (1.0 - smoothstep(0.6, 1.0, r));
+      vec3 c = vColor.rgb * vLit * (1.1 - 0.45 * r);
       gl_FragColor = vec4(mix(c, fogColor, f), a);
     }
     return;
   }
   float cs = cos(vInfo.y), sn = sin(vInfo.y);
   vec2 r = vec2(cs * d.x - sn * d.y, sn * d.x + cs * d.y);
-  if (abs(r.x) > 0.5 || abs(r.y) > 0.5) discard;
-  float k = kind - 1.0;
-  vec2 cell = vec2(mod(k, 2.0), floor(k / 2.0));
-  vec4 t = texture2D(atlas, (cell + 0.5 + r * 0.97) * 0.5);
+  vec2 cxy = vec2(mod(cell, 4.0), floor(cell / 4.0));
+  vec4 t = texture2D(atlas, (cxy + 0.5 + clamp(r, -0.5, 0.5) * 0.985) * 0.25);
   if (additive > 0.5) {
-    float hot = smoothstep(0.82, 1.0, t.r);
-    vec3 c = mix(vColor.rgb, vec3(1.0), hot * 0.6);
+    float heat = t.r;
+    vec3 c = vColor.rgb * (0.25 + 1.0 * heat) + vec3(1.0, 0.92, 0.8) * pow(heat, 6.0) * 0.6;
     float a = t.a * vColor.a;
-    gl_FragColor = vec4(c * a * (1.0 - f), 1.0);
+    // fire cells partly occlude what is behind them (premultiplied "over"), so a fireball shows
+    // its folds instead of summing to a flat white disc; sparks and glows stay purely additive
+    float occl = (cell > 3.5 && cell < 7.5) ? 0.8 : 0.0;
+    gl_FragColor = vec4(c * a * (1.0 - f), a * occl);
   } else {
-    float a = smoothstep(0.38, 0.62, t.a) * vColor.a;
-    if (a < 0.01) discard;
-    vec3 c = vColor.rgb * (0.55 + 0.6 * t.r);
+    float a = t.a * vColor.a;
+    // fade out right in front of the lens so a puff never pastes a flat card over the screen
+    a *= smoothstep(6.0, 40.0, vFog);
+    if (a < 0.003) discard;
+    vec3 c = vColor.rgb * vLit * (0.42 + 0.85 * t.r);
     gl_FragColor = vec4(mix(c, fogColor, f), a);
   }
 }`;
 
-// procedural 2x2 atlas: fire ball, smoke puff, spark star, soft glow (grey ramps, tinted per particle)
+// ---------- noise atlas: 4x4 cells of 128 px ----------
+//  0-3  smoke puffs        4-7  fire balls        8 spark star     9 glow
+//  10,12,13 mist (thin, wispy)   11,14 droplet spray   15 dust (flat, grainy)
 function makeAtlas() {
-  const S = 256, H = 128;
-  const c = document.createElement('canvas');
-  c.width = c.height = S;
-  const g = c.getContext('2d');
-  let seed = 7;
+  const C = 128, S = C * 4;
+  const img = new Uint8ClampedArray(S * S * 4);
+  let seed = 1337;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  // fire: lumpy overlapping hot blobs, brightest at the heart
-  g.save(); g.translate(H / 2, H / 2);
-  for (let i = 0; i < 22; i++) {
-    const a = rnd() * 6.28, dd = rnd() * H * 0.2, rr = H * (0.12 + rnd() * 0.16);
-    const x = Math.cos(a) * dd, y = Math.sin(a) * dd;
-    const gr = g.createRadialGradient(x, y, 0, x, y, rr);
-    gr.addColorStop(0, 'rgba(255,255,255,0.55)'); gr.addColorStop(0.55, 'rgba(200,200,200,0.35)'); gr.addColorStop(1, 'rgba(120,120,120,0)');
-    g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill();
+  // tileable-free value noise with a per-cell permutation
+  const perm = new Uint8Array(512);
+  for (let i = 0; i < 256; i++) perm[i] = i;
+  for (let i = 255; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [perm[i], perm[j]] = [perm[j], perm[i]]; }
+  for (let i = 0; i < 256; i++) perm[256 + i] = perm[i];
+  const grad = (h, x, y) => { const a = (h & 15) / 16 * Math.PI * 2; return Math.cos(a) * x + Math.sin(a) * y; };
+  const fade = (t) => t * t * t * (t * (t * 6 - 15) + 10);
+  function noise(x, y) {
+    const xi = Math.floor(x) & 255, yi = Math.floor(y) & 255, xf = x - Math.floor(x), yf = y - Math.floor(y);
+    const u = fade(xf), v = fade(yf);
+    const aa = perm[perm[xi] + yi], ab = perm[perm[xi] + yi + 1], ba = perm[perm[xi + 1] + yi], bb = perm[perm[xi + 1] + yi + 1];
+    const x1 = grad(aa, xf, yf) + (grad(ba, xf - 1, yf) - grad(aa, xf, yf)) * u;
+    const x2 = grad(ab, xf, yf - 1) + (grad(bb, xf - 1, yf - 1) - grad(ab, xf, yf - 1)) * u;
+    return (x1 + (x2 - x1) * v) * 0.7 + 0.5;   // ~0..1
   }
-  const core = g.createRadialGradient(0, 0, 0, 0, 0, H * 0.22);
-  core.addColorStop(0, 'rgba(255,255,255,0.9)'); core.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = core; g.fillRect(-H / 2, -H / 2, H, H);
-  g.restore();
-  // smoke: cauliflower puff with hard edge, lit from the top left (r = shade, a = coverage)
-  g.save(); g.translate(H + H / 2, H / 2);
-  const lobes = [[0, 0, 0.27]];
-  for (let i = 0; i < 9; i++) { const a = i / 9 * 6.28 + rnd() * 0.5, dd = H * (0.15 + rnd() * 0.06); lobes.push([Math.cos(a) * dd, Math.sin(a) * dd, 0.12 + rnd() * 0.08]); }
-  for (const [x, y, r] of lobes) {
-    const rr = r * H;
-    const gr = g.createRadialGradient(x - rr * 0.35, y - rr * 0.45, rr * 0.1, x, y, rr);
-    gr.addColorStop(0, 'rgb(255,255,255)'); gr.addColorStop(0.6, 'rgb(150,150,150)'); gr.addColorStop(1, 'rgb(70,70,70)');
-    g.fillStyle = gr; g.beginPath(); g.arc(x, y, rr, 0, 7); g.fill();
-  }
-  g.restore();
-  // spark: thin 4-point star with a round hot core
-  g.save(); g.translate(H / 2, H + H / 2);
-  for (const [len, w, a, rot] of [[0.5, 0.07, 1, 0], [0.3, 0.05, 0.7, Math.PI / 4]]) {
-    for (let i = 0; i < 4; i++) {
-      g.save(); g.rotate(i * Math.PI / 2 + rot);
-      const gr = g.createLinearGradient(0, 0, H * len, 0);
-      gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = gr; g.beginPath(); g.moveTo(0, -H * w); g.lineTo(H * len, 0); g.lineTo(0, H * w); g.fill(); g.restore();
+  const fbm = (x, y, oct = 5, lac = 2.03, gain = 0.5) => { let s = 0, a = 0.5, w = 0; for (let o = 0; o < oct; o++) { s += noise(x, y) * a; w += a; x *= lac; y *= lac; a *= gain; } return s / w; };
+  const ss = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const put = (cell, fn) => {
+    const cx = (cell % 4) * C, cy = Math.floor(cell / 4) * C;
+    const ox = rnd() * 200, oy = rnd() * 200;
+    const dens = new Float32Array(C * C), aux = new Float32Array(C * C);
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) {
+      const u = (x + 0.5) / C - 0.5, v = (y + 0.5) / C - 0.5;
+      const o = fn(u, v, ox, oy);
+      dens[y * C + x] = o[0]; aux[y * C + x] = o[1] ?? o[0];
     }
+    return { cx, cy, dens, aux };
+  };
+  const write = ({ cx, cy }, x, y, r, a) => { const i = ((cy + y) * S + cx + x) * 4; img[i] = img[i + 1] = img[i + 2] = Math.max(0, Math.min(255, r * 255)); img[i + 3] = Math.max(0, Math.min(255, a * 255)); };
+  // smoke: domain-warped fBm billows inside a lumpy round envelope; shade = density toward the
+  // light (up-left) subtracted from density here, i.e. a cheap one-step self shadow
+  const smokeCell = (cell, freq, edge) => {
+    const c = put(cell, (u, v, ox, oy) => {
+      const wx = fbm(u * 3 + ox, v * 3 + oy, 3) - 0.5, wy = fbm(u * 3 + ox + 9, v * 3 + oy + 5, 3) - 0.5;
+      const n = fbm((u + wx * 0.35) * freq + ox, (v + wy * 0.35) * freq + oy, 5);
+      const ang = Math.atan2(v, u);
+      const lump = fbm(Math.cos(ang) * 1.6 + ox, Math.sin(ang) * 1.6 + oy, 3);
+      const r = Math.hypot(u, v) / (0.3 + 0.2 * lump);
+      const env = 1 - ss(edge, 1, r);
+      return [Math.max(0, env * (n * 1.6 - 0.28)) * env];
+    });
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) {
+      const dd = c.dens[y * C + x];
+      let occ = 0;
+      for (let k = 1; k <= 4; k++) { const sx = x - k * 3, sy = y - k * 4; if (sx >= 0 && sy >= 0) occ += c.dens[sy * C + sx] * (1 - k * 0.18); }
+      const shade = Math.max(0, Math.min(1, 0.95 - occ * 0.55 + dd * 0.12));
+      write(c, x, y, shade, Math.min(1, dd * 1.25));
+    }
+  };
+  for (let i = 0; i < 4; i++) smokeCell(i, 4.5 + i * 0.6, 0.35);
+  // fire: turbulent ridged noise, hottest in the heart
+  for (let i = 4; i < 8; i++) {
+    const c = put(i, (u, v, ox, oy) => {
+      const wx = fbm(u * 4 + ox, v * 4 + oy, 3) - 0.5;
+      const n = 1 - Math.abs(fbm((u + wx * 0.4) * 6 + ox, v * 6 + oy, 4) * 2 - 1);
+      const r = Math.hypot(u, v) / (0.36 + 0.12 * fbm(Math.atan2(v, u) * 1.2 + ox, oy, 2));
+      const env = 1 - ss(0.25, 1, r);
+      const heat = Math.max(0, env * (0.55 + 0.6 * n) - 0.12);
+      return [heat * env, heat];
+    });
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) write(c, x, y, Math.min(1, c.aux[y * C + x] * 1.1), Math.min(1, c.dens[y * C + x] * 1.4));
   }
-  const sc = g.createRadialGradient(0, 0, 0, 0, 0, H * 0.18);
-  sc.addColorStop(0, 'rgba(255,255,255,1)'); sc.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = sc; g.fillRect(-H / 2, -H / 2, H, H);
-  g.restore();
-  // glow: smooth falloff with a small hot centre
-  g.save(); g.translate(H + H / 2, H + H / 2);
-  const gl = g.createRadialGradient(0, 0, 0, 0, 0, H / 2);
-  gl.addColorStop(0, 'rgba(255,255,255,1)'); gl.addColorStop(0.15, 'rgba(230,230,230,0.75)'); gl.addColorStop(0.45, 'rgba(160,160,160,0.25)'); gl.addColorStop(1, 'rgba(100,100,100,0)');
-  g.fillStyle = gl; g.fillRect(-H / 2, -H / 2, H, H);
-  g.restore();
-  const t = new THREE.CanvasTexture(c);
+  // mist: thin, finely broken, faint — breaks up into wisps as it fades
+  for (const cell of [10, 12, 13]) {
+    const c = put(cell, (u, v, ox, oy) => {
+      const wx = fbm(u * 2 + ox, v * 2 + oy, 3) - 0.5;
+      const n = fbm((u + wx * 0.5) * 7 + ox, v * 7 + oy, 6, 2.1, 0.55);
+      const r = Math.hypot(u, v) / 0.48;
+      const env = 1 - ss(0.1, 1, r);
+      return [Math.max(0, n * 1.7 - 0.62) * env * env];
+    });
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) { const dd = c.dens[y * C + x]; write(c, x, y, 0.7 + dd * 0.3, Math.min(1, dd * 1.6)); }
+  }
+  // droplet spray: many fine soft droplets, denser toward the middle
+  for (const cell of [11, 14]) {
+    const c = put(cell, () => [0]);
+    for (let k = 0; k < 260; k++) {
+      const a = rnd() * 6.283, d = Math.pow(rnd(), 0.7) * C * 0.46, rr = 0.6 + rnd() * rnd() * 2.8;
+      const px = C / 2 + Math.cos(a) * d, py = C / 2 + Math.sin(a) * d;
+      for (let y = Math.max(0, Math.floor(py - rr - 1)); y < Math.min(C, py + rr + 1); y++) for (let x = Math.max(0, Math.floor(px - rr - 1)); x < Math.min(C, px + rr + 1); x++) {
+        const q = 1 - ss(rr * 0.5, rr + 0.5, Math.hypot(x + 0.5 - px, y + 0.5 - py));
+        c.dens[y * C + x] = Math.max(c.dens[y * C + x], q * (0.6 + 0.4 * (1 - d / (C * 0.5))));
+      }
+    }
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) write(c, x, y, 0.8, c.dens[y * C + x]);
+  }
+  // dust: flat, grainy, low-contrast
+  {
+    const c = put(15, (u, v, ox, oy) => {
+      const n = fbm(u * 9 + ox, v * 9 + oy, 5);
+      const grain = noise(u * 60 + ox, v * 60 + oy);
+      const r = Math.hypot(u, v) / 0.47;
+      return [Math.max(0, (n * 1.3 - 0.25) * (0.75 + grain * 0.4)) * (1 - ss(0.2, 1, r))];
+    });
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) { const dd = c.dens[y * C + x]; write(c, x, y, 0.75 + dd * 0.25, Math.min(1, dd * 1.1)); }
+  }
+  // spark: thin hot streak cross with a round core; glow: smooth falloff
+  {
+    const c = put(8, (u, v) => {
+      const r = Math.hypot(u, v);
+      const core = Math.exp(-r * r * 260);
+      const ray = Math.max(Math.exp(-Math.abs(v) * 90) * (1 - ss(0, 0.5, Math.abs(u))), Math.exp(-Math.abs(u) * 90) * (1 - ss(0, 0.5, Math.abs(v)))) * 0.8;
+      return [Math.min(1, core + ray)];
+    });
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) { const dd = c.dens[y * C + x]; write(c, x, y, dd, dd); }
+  }
+  {
+    const c = put(9, (u, v) => { const r = Math.hypot(u, v) * 2; return [Math.max(0, Math.exp(-r * r * 4.5) - 0.011) + Math.exp(-r * r * 60) * 0.5]; });
+    for (let y = 0; y < C; y++) for (let x = 0; x < C; x++) { const dd = Math.min(1, c.dens[y * C + x]); write(c, x, y, Math.min(1, dd * 1.1), dd); }
+  }
+  const t = new THREE.DataTexture(img, S, S, THREE.RGBAFormat);
   t.flipY = false;
-  t.premultiplyAlpha = false;
   t.colorSpace = THREE.NoColorSpace;
+  t.generateMipmaps = true;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
   return t;
 }
 
+// ---------- realistic muzzle flash textures (canvas, generated once) ----------
+// burst: the flash seen down the barrel axis, an irregular ragged ball of flame with a few
+// uneven tongues (no symmetric cartoon star). tongue: the flash from the side, a tapering
+// turbulent plume, hottest at the muzzle (bottom of the texture).
+function vnoise(seed) {
+  const p = new Float32Array(256);
+  let s = seed;
+  for (let i = 0; i < 256; i++) { s = (s * 16807) % 2147483647; p[i] = s / 2147483647; }
+  const at = (i) => p[((i % 256) + 256) % 256];
+  return (x) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return at(i) + (at(i + 1) - at(i)) * u; };
+}
+function pixelTex(size, fn) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const im = g.createImageData(size, size);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const v = Math.max(0, Math.min(1, fn((x + 0.5) / size - 0.5, (y + 0.5) / size - 0.5)));
+    const i = (y * size + x) * 4;
+    im.data[i] = im.data[i + 1] = im.data[i + 2] = 255; im.data[i + 3] = v * 255;
+  }
+  g.putImageData(im, 0, 0);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+let _flameTex = null;
+export function flameTextures() {
+  if (_flameTex) return _flameTex;
+  const n1 = vnoise(91), n2 = vnoise(17), n3 = vnoise(55);
+  const burst = pixelTex(128, (u, v) => {
+    const r = Math.hypot(u, v) * 2, a = Math.atan2(v, u) / (Math.PI * 2) + 0.5;
+    // uneven tongues: a few strong lobes plus fine ragged edges
+    const lobe = Math.pow(n1(a * 5), 2.2) * 0.75 + n2(a * 23) * 0.25 + n3(a * 61) * 0.12;
+    const reach = 0.22 + lobe * 0.78;
+    const edge = 1 - Math.min(1, Math.max(0, (r - reach * 0.55) / (reach * 0.45)));
+    const core = Math.exp(-r * r * 30);
+    const streak = (0.6 + 0.4 * n3(a * 140 + r * 3)) * edge;
+    return Math.max(core, streak * (1 - r * 0.6));
+  });
+  const tongue = pixelTex(128, (u, v) => {
+    const y = 0.5 - v;                 // 0 at the muzzle (bottom) .. 1 at the tip
+    const w = 0.42 * Math.pow(1 - y, 0.8) * (0.75 + 0.5 * n1(y * 9));
+    const off = (n2(y * 6) - 0.5) * 0.12 * y;
+    const d = Math.abs(u - off) / Math.max(0.001, w);
+    const body = (1 - Math.min(1, d)) * (1 - Math.pow(y, 1.6));
+    const rag = 0.65 + 0.35 * n3(y * 40 + u * 9);
+    return Math.pow(body, 0.7) * rag * Math.min(1, (1 - y) * 4);
+  });
+  _flameTex = { burst, tongue };
+  return _flameTex;
+}
+
 class ParticleSystem {
-  constructor(scene, additive, atlas) {
+  // lit: the medium is shaded by the light grid and dynamic lights (smoke, dust, mist, blood)
+  constructor(scene, additive, atlas, lit = !additive) {
     this.n = 0;
     this.pos = new Float32Array(MAX_P * 3);
     this.col = new Float32Array(MAX_P * 4);
     this.size = new Float32Array(MAX_P);
     this.info = new Float32Array(MAX_P * 2);
+    this.lit = new Float32Array(MAX_P * 3).fill(1);
     this.p = [];
+    this.lightGrid = null;
+    this._s = [0, 0, 0, 0, 0, 0];
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('pcolor', new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('size', new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute('pinfo', new THREE.BufferAttribute(this.info, 2).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute('plit', new THREE.BufferAttribute(this.lit, 3).setUsage(THREE.DynamicDrawUsage));
     this.geo = g;
+    this.isLit = lit;
     this.mat = new THREE.ShaderMaterial({
       vertexShader: particleVert, fragmentShader: particleFrag,
-      uniforms: { scale: { value: 600 }, additive: { value: additive ? 1 : 0 }, maxSize: { value: 512 }, fogColor: shared.fogColor, fogDensity: shared.fogDensity, atlas: { value: atlas } },
+      uniforms: { scale: { value: 600 }, additive: { value: additive ? 1 : 0 }, lit: { value: lit ? 1 : 0 }, maxSize: { value: 1024 }, fogColor: shared.fogColor, fogDensity: shared.fogDensity, atlas: { value: atlas }, dlPos: shared.dlPos, dlCol: shared.dlCol, dlCount: shared.dlCount },
       transparent: true, depthWrite: false,
-      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      blending: additive ? THREE.CustomBlending : THREE.NormalBlending,
+      blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneFactor,
     });
     this.points = new THREE.Points(g, this.mat);
     this.points.frustumCulled = false;
     this.points.renderOrder = additive ? 3 : 2;
     scene.add(this.points);
   }
-  // p: {pos:[3], vel:[3], life, size, size1, color:[r,g,b], color1, alpha, alpha1, grav, drag, kind, rot, spin, rise}
+  // p: {pos:[3], vel:[3], life, size, size1, color:[r,g,b], color1, alpha, alpha1, grav, drag, kind, rot, spin, rise, fadeIn, turb}
   add(p) {
     if (this.p.length >= MAX_P) this.p.shift();
     p.t = 0;
+    const cells = CELLS[p.kind];
+    p.cell = cells ? cells[(Math.random() * cells.length) | 0] + 1 : 0;
     if (p.kind && p.rot == null) p.rot = Math.random() * 6.28;
+    if (this.isLit) {
+      if (this.lightGrid) {
+        const s = this._s;
+        this.lightGrid.sample(p.pos, s);
+        p.lit = [Math.min(1.6, s[0] * 0.95 + 0.1), Math.min(1.6, s[1] * 0.95 + 0.1), Math.min(1.6, s[2] * 0.95 + 0.1)];
+      } else p.lit = [1, 1, 1];
+    }
     this.p.push(p);
     return p;
   }
-  update(dt) {
+  update(dt, time = 0) {
     let n = 0;
     const keep = [];
     for (const p of this.p) {
@@ -181,25 +343,27 @@ class ParticleSystem {
       if (p.grav) p.vel[1] -= p.grav * dt;
       if (p.rise) p.vel[1] += p.rise * dt;
       if (p.drag) { const d = Math.max(0, 1 - p.drag * dt); p.vel[0] *= d; p.vel[1] *= d; p.vel[2] *= d; }
+      // slow turbulent drift so lingering smoke curls instead of sliding in a straight line
+      if (p.turb) { const ph = p.rot * 7 + time * 0.9; p.vel[0] += Math.sin(ph) * p.turb * dt; p.vel[2] += Math.cos(ph * 1.3) * p.turb * dt; }
       p.pos[0] += p.vel[0] * dt; p.pos[1] += p.vel[1] * dt; p.pos[2] += p.vel[2] * dt;
-      if (p.spin) p.rot += p.spin * dt;
+      if (p.spin) p.rot += p.spin * dt * (1 - k * 0.7);
       this.pos[n * 3] = p.pos[0]; this.pos[n * 3 + 1] = p.pos[1]; this.pos[n * 3 + 2] = p.pos[2];
-      // alpha follows a quick fade-in (fire) and a linear ramp
       let a = (p.alpha ?? 1) + ((p.alpha1 ?? 0) - (p.alpha ?? 1)) * (p.ease ? k * k : k);
       if (p.fadeIn) a *= Math.min(1, p.t / p.fadeIn);
       const c = p.color, c1 = p.color1 || c;
       const kc = p.colorEase ? Math.sqrt(k) : k;
       this.col[n * 4] = c[0] + (c1[0] - c[0]) * kc; this.col[n * 4 + 1] = c[1] + (c1[1] - c[1]) * kc; this.col[n * 4 + 2] = c[2] + (c1[2] - c[2]) * kc;
       this.col[n * 4 + 3] = a;
-      const ks = p.sizeEase ? 1 - (1 - k) * (1 - k) : k;
+      const ks = p.sizeEase ? 1 - (1 - k) * (1 - k) * (1 - k) : k;
       this.size[n] = p.size + ((p.size1 ?? p.size) - p.size) * ks;
-      this.info[n * 2] = p.kind || 0; this.info[n * 2 + 1] = p.rot || 0;
+      this.info[n * 2] = p.cell; this.info[n * 2 + 1] = p.rot || 0;
+      if (p.lit) { this.lit[n * 3] = p.lit[0]; this.lit[n * 3 + 1] = p.lit[1]; this.lit[n * 3 + 2] = p.lit[2]; }
       n++;
     }
     this.p = keep;
     this.n = n;
     this.geo.setDrawRange(0, n);
-    for (const k of ['position', 'pcolor', 'size', 'pinfo']) this.geo.attributes[k].needsUpdate = true;
+    for (const k of ['position', 'pcolor', 'size', 'pinfo', 'plit']) this.geo.attributes[k].needsUpdate = true;
   }
 }
 
@@ -360,6 +524,7 @@ export class Effects {
     this.atlas = makeAtlas();
     this.add = new ParticleSystem(scene, true, this.atlas);
     this.smoke = new ParticleSystem(scene, false, this.atlas);
+    this._grid = null;
     this.streaks = new StreakSystem(scene);
     this.wet = new StreakSystem(scene, true);     // blood jets and droplet streaks (normal blend)
     this.lights = [];
@@ -399,22 +564,8 @@ export class Effects {
       gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.2, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
       g.fillStyle = gr; g.fillRect(0, 0, s, s);
     });
-    // stylized 4+4 point muzzle star
-    this.starTex = makeCanvasTex((g, s) => {
-      const c = s / 2;
-      g.translate(c, c);
-      for (const [len, w, a] of [[0.5, 0.1, 1], [0.34, 0.075, 0.8]]) {
-        for (let i = 0; i < 4; i++) {
-          g.save(); g.rotate(i * Math.PI / 2 + (a < 1 ? Math.PI / 4 : 0));
-          const gr = g.createLinearGradient(0, 0, s * len, 0);
-          gr.addColorStop(0, `rgba(255,255,255,${a})`); gr.addColorStop(0.6, `rgba(255,255,255,${a * 0.35})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
-          g.fillStyle = gr; g.beginPath(); g.moveTo(0, -s * w); g.quadraticCurveTo(s * len * 0.3, -s * w * 0.3, s * len, 0); g.quadraticCurveTo(s * len * 0.3, s * w * 0.3, 0, s * w); g.fill(); g.restore();
-        }
-      }
-      const gr = g.createRadialGradient(0, 0, 0, 0, 0, s * 0.24);
-      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.5)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = gr; g.fillRect(-c, -c, s, s);
-    }, 128);
+    // muzzle flash burst (also handed to the first-person weapon)
+    this.starTex = flameTextures().burst;
     this.ringTex = makeCanvasTex((g, s) => {
       const gr = g.createRadialGradient(s / 2, s / 2, s * 0.3, s / 2, s / 2, s / 2);
       gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.72, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.82, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
@@ -423,6 +574,10 @@ export class Effects {
     this.decalGeo = new THREE.PlaneGeometry(1, 1);
     this.beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true).translate(0, 0.5, 0).rotateX(Math.PI / 2);
   }
+
+  // the light grid shades smoke / dust / mist where it is born
+  set lightGrid(g) { this._grid = g; this.smoke.lightGrid = g; }
+  get lightGrid() { return this._grid; }
 
   // particle count scaled by the effects quality
   n(k) { return Math.max(1, Math.round(k * this.q)); }
@@ -505,104 +660,152 @@ export class Effects {
     }
   }
 
+  // ---------- smoke helpers ----------
+  // one billow of lit smoke: grows fast then slowly, rises, curls, thins out over `life`
+  puff(pos, vel, size0, size1, life, color, alpha, opts = {}) {
+    return this.smoke.add({
+      pos: [...pos], vel: [...vel], life: life * (0.8 + Math.random() * 0.4), size: size0, size1: size1 * (0.85 + Math.random() * 0.3),
+      color, color1: opts.color1 || color, alpha, alpha1: 0, ease: opts.ease ?? true, fadeIn: opts.fadeIn ?? 0.06,
+      drag: opts.drag ?? 2.2, rise: opts.rise ?? 14, turb: opts.turb ?? 18, kind: opts.kind ?? PK.SMOKE,
+      spin: (Math.random() - 0.5) * (opts.spin ?? 0.6), sizeEase: true, grav: opts.grav,
+    });
+  }
+  // dust thrown off a surface: low, flat, quickly settling
+  dust(pos, n, count, spread, size, life, color = [0.5, 0.47, 0.43]) {
+    for (let i = 0; i < this.n(count); i++) {
+      const v = rndDir(n, 0.6); const sp = spread * (0.4 + Math.random() * 0.8);
+      this.puff(off(pos, n, 3), [v[0] * sp, v[1] * sp * 0.6, v[2] * sp], size * 0.4, size * (1 + Math.random() * 0.6), life, color, 0.32, { kind: PK.DUST, drag: 4, rise: 4, turb: 8 });
+    }
+  }
+
   // ---------- weapon archetypes ----------
-  // A. hitscan muzzle (third person): star + glow, a short forward petal, brief light
+  // A. hitscan / launcher muzzle (third person): a short ragged flame burst along the barrel,
+  // a hot core, a light punch, and lingering gun smoke for the heavy weapons
   muzzleFlash(pos, color = 0xffc060, radius = 160, dir = null, weapon = null) {
-    const c = new THREE.Color(color).lerp(new THREE.Color(1, 1, 1), 0.35);
+    const cc = rgb(color);
     const big = weapon === 'sg' || weapon === 'rl' || weapon === 'gl';
-    this.flash(pos, this.starTex, c, big ? 34 : 22, big ? 46 : 28, 0.05, 1);
-    this.flash(pos, this.glowTex, color, big ? 40 : 26, big ? 56 : 34, 0.07, 0.6);
+    const fireCol = weapon === 'rg' ? lerp3(cc, WHITE, 0.3) : lerp3([1, 0.72, 0.35], cc, 0.25);
+    this.add.add({ pos: [...pos], vel: [0, 0, 0], life: 0.05, size: big ? 18 : 11, size1: big ? 24 : 14, color: lerp3(fireCol, WHITE, 0.5), alpha: 1, alpha1: 0, kind: PK.GLOW });
     if (dir && weapon !== 'rg') {
-      const cc = rgb(color);
-      this.streaks.add({ a: [...pos], b: off(pos, dir, big ? 30 : 20), life: 0.05, width: big ? 5 : 3.5, width1: 2, color: lerp3(cc, WHITE, 0.3), alpha: 1, alpha1: 0, tail: 0.2, hot: 1 });
+      // flame tongues: fire cells strung along the barrel axis, shrinking outward
+      const nf = big ? 4 : 2;
+      for (let i = 0; i < nf; i++) {
+        const d = (i + 0.5) * (big ? 7 : 5);
+        this.add.add({ pos: off(pos, dir, d), vel: [dir[0] * 120, dir[1] * 120, dir[2] * 120], life: 0.045 + Math.random() * 0.02, size: (big ? 20 : 12) * (1 - i / (nf + 1)), size1: (big ? 26 : 15) * (1 - i / (nf + 1)), color: fireCol, color1: [cc[0] * 0.8, cc[1] * 0.35, cc[2] * 0.15], alpha: 1, alpha1: 0, kind: PK.FIRE, spin: 6 });
+      }
+      if (weapon === 'sg' || weapon === 'mg') this.sparks(off(pos, dir, 4), dir, [1, 0.8, 0.45], weapon === 'sg' ? 5 : 1, 700, { life: 0.12, width: 0.4, bias: 4, grav: 300, stretch: 0.012 });
     }
     if (weapon !== 'mg') this.light(pos, color, radius, 0.07, { intensity: 1.3 });
     else if (Math.random() < 0.5) this.light(pos, color, radius * 0.7, 0.04, { intensity: 0.8 });
-    if (dir && (weapon === 'sg' || weapon === 'rl' || weapon === 'gl')) {
-      for (let i = 0; i < this.n(weapon === 'sg' ? 4 : 3); i++) {
-        const sp = 40 + Math.random() * 60;
-        this.smoke.add({ pos: off(pos, dir, 8), vel: [dir[0] * sp, dir[1] * sp + 10, dir[2] * sp], life: 0.6, size: 6, size1: 18, color: [0.5, 0.47, 0.42], alpha: 0.55, alpha1: 0, drag: 3, kind: PK.SMOKE, spin: (Math.random() - 0.5) * 2, sizeEase: true });
+    if (dir) {
+      // gun smoke: thin grey wisps that leave the barrel fast, stall and drift upward
+      const ns = weapon === 'sg' ? 5 : big ? 4 : weapon === 'rg' ? 2 : (Math.random() < 0.4 ? 1 : 0);
+      for (let i = 0; i < this.n(ns); i++) {
+        const sp = 60 + Math.random() * 120;
+        const v = rndDir(dir, 3);
+        this.puff(off(pos, dir, 6), [v[0] * sp, v[1] * sp + 8, v[2] * sp], 4, big ? 26 : 16, big ? 1.6 : 1.0, weapon === 'rg' ? [0.62, 0.68, 0.72] : [0.6, 0.58, 0.55], big ? 0.3 : 0.2, { drag: 4, rise: 10, turb: 14, kind: PK.MIST });
       }
     }
   }
 
-  // white-hot tracer streak flying from muzzle to impact, tapering to a transparent tail
+  // tracer: a thin hot streak flying from muzzle to impact (only some rounds are tracers)
   tracer(from, to, color) {
     if (!from) return;
     const d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
     const len = Math.hypot(d[0], d[1], d[2]);
-    if (len < 60) return;
+    if (len < 80) return;
     const u = [d[0] / len, d[1] / len, d[2] / len];
-    const seg = Math.min(140, len * 0.45);
-    const speed = 7500;
-    const life = Math.max(0.03, (len - seg) / speed);
-    const c = lerp3(rgb(color), WHITE, 0.35);
+    const seg = Math.min(90, len * 0.35);
+    const speed = 9000;
+    const life = Math.max(0.025, (len - seg) / speed);
+    const c = lerp3(rgb(color), [1, 0.9, 0.7], 0.6);
     this.streaks.add({
-      a: [...from], b: off(from, u, seg), life, width: 1.1, color: c, alpha: 1, alpha1: 0.85, tail: 0, hot: 0.9,
+      a: [...from], b: off(from, u, seg), life, width: 0.55, color: c, alpha: 0.9, alpha1: 0.8, tail: 0, hot: 0.8,
       upd: (s, k) => { const o = k * (len - seg); s.a = off(from, u, o); s.b = off(from, u, o + seg); },
     });
   }
 
-  // impact: bright pop, stretched ricochet sparks, dust puff, hole decal
+  // impact: a short hot pop, ricochet sparks, a jet of pulverised material and a lingering dust
+  // puff in the surface's light, chips, and a bullet hole
   bulletImpact(pos, normal, kind = 'mg', from = null) {
     const n = normal || [0, 1, 0];
-    const c = rgb(kind === 'sg' ? 0xff9a26 : 0xffe68a);
-    this.sparks(pos, n, c, kind === 'sg' ? 3 : 5, kind === 'sg' ? 260 : 340, { life: 0.22, width: 0.6 });
-    this.add.add({ pos: off(pos, n, 2), vel: [0, 0, 0], life: 0.06, size: 12, size1: 7, color: c, alpha: 1, alpha1: 0, kind: PK.SPARK });
-    this.add.add({ pos: off(pos, n, 1.5), vel: [0, 0, 0], life: 0.12, size: 9, size1: 14, color: lerp3(c, [1, 0.4, 0.1], 0.5), alpha: 0.6, alpha1: 0, kind: PK.GLOW });
-    this.smoke.add({ pos: off(pos, n, 3), vel: [n[0] * 30, n[1] * 30 + 12, n[2] * 30], life: 0.7, size: 5, size1: 17, color: [0.46, 0.43, 0.39], alpha: 0.6, alpha1: 0, drag: 2.5, kind: PK.SMOKE, spin: (Math.random() - 0.5) * 2, sizeEase: true });
-    // chips of the wall, hard-alpha
-    if (this.hi()) for (let i = 0; i < 2; i++) {
-      const v = rndDir(n, 0.4); const sp = 120 + Math.random() * 160;
-      this.smoke.add({ pos: off(pos, n, 1), vel: [v[0] * sp, v[1] * sp + 40, v[2] * sp], life: 0.5, size: 1.4, size1: 1.2, color: [0.18, 0.16, 0.14], alpha: 1, alpha1: 1, grav: 900 });
+    this.sparks(pos, n, [1, 0.82, 0.5], kind === 'sg' ? 2 : 4, kind === 'sg' ? 300 : 420, { life: 0.18, width: 0.45, color1: [1, 0.35, 0.05], stretch: 0.016 });
+    this.add.add({ pos: off(pos, n, 1.5), vel: [0, 0, 0], life: 0.05, size: 7, size1: 4, color: [1, 0.8, 0.5], alpha: 0.9, alpha1: 0, kind: PK.GLOW });
+    // the dust jet leaves along the surface normal, then billows and hangs
+    const jet = rndDir(n, 2.5);
+    this.puff(off(pos, n, 2), [jet[0] * 90, jet[1] * 90, jet[2] * 90], 3, kind === 'sg' ? 14 : 18, 1.1, [0.52, 0.49, 0.45], 0.45, { kind: PK.DUST, drag: 5, rise: 6, turb: 10 });
+    if (this.hi()) this.puff(off(pos, n, 2), [n[0] * 25, n[1] * 25 + 6, n[2] * 25], 4, 22, 1.6, [0.5, 0.48, 0.45], 0.22, { kind: PK.MIST, drag: 3, rise: 8 });
+    // chips of the wall, tumbling under gravity
+    for (let i = 0; i < this.n(3); i++) {
+      const v = rndDir(n, 0.5); const sp = 140 + Math.random() * 200;
+      this.smoke.add({ pos: off(pos, n, 1), vel: [v[0] * sp, v[1] * sp + 60, v[2] * sp], life: 0.45 + Math.random() * 0.3, size: 0.8 + Math.random() * 0.9, size1: 0.7, color: [0.22, 0.2, 0.18], alpha: 1, alpha1: 1, grav: 1000 });
     }
-    if (Math.random() < 0.8) this.decal(pos, normal, this.holeTex, 4 + Math.random() * 2, 15);
-    if (from && (kind === 'mg' || Math.random() < 0.6)) this.tracer(from, pos, kind === 'sg' ? 0xff9a26 : 0xffe68a);
+    if (Math.random() < 0.85) this.decal(pos, normal, this.holeTex, 3 + Math.random() * 1.5, 18);
+    if (from && (kind === 'mg' ? Math.random() < 0.45 : Math.random() < 0.25)) this.tracer(from, pos, kind === 'sg' ? 0xff9a26 : 0xffe68a);
   }
 
-  // C. rocket / grenade explosion, layered in order (spec 7.3 C)
+  // C. rocket / grenade explosion: a short white-hot flash, a turbulent fireball that rolls out
+  // and burns down into a column of dark smoke lit from inside by the fading blast light, a dust
+  // ring blown out along the surface, debris, sparks and embers, scorch, shake
   explosion(pos, normal, big = true, camPos = null, kind = 'rocket') {
     const P = BLAST[kind] || BLAST.rocket;
     const n = normal || [0, 1, 0];
     const p0 = off(pos, n, 8);
     const S = big ? 1 : 0.4;
-    // 1. white-hot core flash, 1-2 frames, and a spherical flash ring
-    this.flash(p0, this.glowTex, P.core, 70 * S, 110 * S, 0.06, 0.9);
-    this.flash(p0, this.starTex, P.star, 100 * S, 160 * S, 0.09, 0.9);
-    this.flash(p0, this.ringTex, P.ring, 30 * S, 190 * S, 0.22, 0.55);
-    // 2. fireball: lumpy fire sprites, spinning, burning down through the palette
-    for (let i = 0; i < this.n(big ? 14 : 5); i++) {
-      const v = rndDir(n, 0.35); const sp = 50 + Math.random() * 170;
-      this.add.add({ pos: off(p0, v, 6), vel: [v[0] * sp, v[1] * sp + 20, v[2] * sp], life: 0.3 + Math.random() * 0.2, size: 30 * S, size1: (62 + Math.random() * 20) * S, color: P.fire, color1: P.fire1, alpha: 0.7, alpha1: 0, drag: 5, kind: PK.FIRE, spin: (Math.random() - 0.5) * 4, sizeEase: true, colorEase: true });
+    // 1. flash: a hot glow, a couple of frames
+    this.add.add({ pos: [...p0], vel: [0, 0, 0], life: 0.06, size: 70 * S, size1: 110 * S, color: rgb(P.core), alpha: 0.7, alpha1: 0, kind: PK.GLOW });
+    this.add.add({ pos: [...p0], vel: [0, 0, 0], life: 0.16, size: 120 * S, size1: 200 * S, color: lerp3(P.fire, [1, 0.5, 0.2], 0.5), alpha: 0.18, alpha1: 0, kind: PK.GLOW });
+    // 2. fireball: turbulent fire cells expanding fast, decelerating, cooling through the palette
+    for (let i = 0; i < this.n(big ? 22 : 7); i++) {
+      const v = rndDir(n, 0.3); const sp = 90 + Math.random() * 260;
+      const life = 0.32 + Math.random() * 0.3;
+      this.add.add({ pos: off(p0, v, 4 + Math.random() * 10), vel: [v[0] * sp, v[1] * sp + 30, v[2] * sp], life, size: (22 + Math.random() * 14) * S, size1: (60 + Math.random() * 34) * S, color: P.fire, color1: P.fire1, alpha: 0.9, alpha1: 0, ease: false, drag: 6, rise: 60, kind: PK.FIRE, spin: (Math.random() - 0.5) * 3, sizeEase: true, colorEase: true });
     }
-    for (let i = 0; i < this.n(big ? 5 : 2); i++) {
-      this.add.add({ pos: [...p0], vel: [0, 0, 0], life: 0.12, size: 45 * S, size1: 70 * S, color: lerp3(P.fire, WHITE, 0.3), alpha: 0.55, alpha1: 0, kind: PK.FIRE, spin: 3 });
-    }
-    // 3. dark oily smoke, staggered, drifting out and up
-    for (let i = 0; i < this.n(big ? 10 : 3); i++) {
-      this.later(0.05 + i * 0.03, () => {
-        const v = rndDir(n, 0.6); const sp = 30 + Math.random() * 70;
-        this.smoke.add({ pos: off(p0, v, 16), vel: [v[0] * sp, v[1] * sp + 30, v[2] * sp], life: 1.2 + Math.random() * 0.6, size: 30 * S, size1: 80 * S, color: [0.32, 0.27, 0.23], color1: [0.15, 0.14, 0.14], alpha: 0.95, alpha1: 0, ease: true, drag: 1.6, rise: 12, kind: PK.SMOKE, spin: (Math.random() - 0.5) * 0.8, sizeEase: true });
+    // 3. smoke: the fireball's soot, born dark inside the flames and rolling up into a column;
+    // it is lit by the blast's own light while the fire burns, then by the room
+    const soot = kind === 'grenade' ? [0.3, 0.3, 0.27] : [0.24, 0.21, 0.19];
+    for (let i = 0; i < this.n(big ? 18 : 5); i++) {
+      this.later(0.04 + Math.random() * 0.16, () => {
+        const v = rndDir(n, 0.45); const sp = 60 + Math.random() * 150;
+        this.puff(off(p0, v, 10 + Math.random() * 20), [v[0] * sp, v[1] * sp + 40, v[2] * sp], (28 + Math.random() * 14) * S, (90 + Math.random() * 50) * S, 2.6 + Math.random() * 1.6, soot, 0.62, { color1: [0.34, 0.33, 0.33], drag: 2.4, rise: 26, turb: 26, spin: 0.5, fadeIn: 0.12 });
       });
     }
-    // 4. shockwave flat against the surface
-    if (big) this.shockwave(pos, n, P.ring, 130, 0.38);
+    // a thin grey veil that hangs longest
+    if (big) for (let i = 0; i < this.n(6); i++) {
+      this.later(0.3 + Math.random() * 0.3, () => {
+        const v = rndDir(n, 1); const sp = 30 + Math.random() * 50;
+        this.puff(off(p0, v, 30), [v[0] * sp, v[1] * sp + 20, v[2] * sp], 60, 170, 4 + Math.random() * 2, [0.42, 0.41, 0.4], 0.18, { kind: PK.MIST, drag: 1.5, rise: 10, turb: 20 });
+      });
+    }
+    // 4. dust ring blown out flat along the surface
+    if (big) {
+      const t1 = Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+      const a1 = norm([n[1] * t1[2] - n[2] * t1[1], n[2] * t1[0] - n[0] * t1[2], n[0] * t1[1] - n[1] * t1[0]]);
+      const a2 = [n[1] * a1[2] - n[2] * a1[1], n[2] * a1[0] - n[0] * a1[2], n[0] * a1[1] - n[1] * a1[0]];
+      const m = this.n(14);
+      for (let i = 0; i < m; i++) {
+        const a = i / m * Math.PI * 2 + Math.random() * 0.3, sp = 260 + Math.random() * 160;
+        const v = [a1[0] * Math.cos(a) + a2[0] * Math.sin(a), a1[1] * Math.cos(a) + a2[1] * Math.sin(a), a1[2] * Math.cos(a) + a2[2] * Math.sin(a)];
+        this.puff(off(pos, n, 6), [v[0] * sp + n[0] * 20, v[1] * sp + n[1] * 20, v[2] * sp + n[2] * 20], 14, 60 + Math.random() * 30, 1.6 + Math.random() * 0.8, [0.46, 0.43, 0.39], 0.4, { kind: PK.DUST, drag: 3.6, rise: 6, turb: 12 });
+      }
+    }
     // 5. debris: dark chunks with aggressive gravity, plus burning sparks as streaks
-    for (let i = 0; i < this.n(big ? 14 : 4); i++) {
-      const v = rndDir(n, 0.25); const sp = 220 + Math.random() * 380;
-      this.smoke.add({ pos: [...p0], vel: [v[0] * sp, v[1] * sp + 80, v[2] * sp], life: 0.6 + Math.random() * 0.6, size: 2 + Math.random() * 3, size1: 2, color: [0.12, 0.1, 0.08], alpha: 1, alpha1: 1, grav: 1100 });
+    for (let i = 0; i < this.n(big ? 18 : 5); i++) {
+      const v = rndDir(n, 0.25); const sp = 220 + Math.random() * 420;
+      this.smoke.add({ pos: [...p0], vel: [v[0] * sp, v[1] * sp + 80, v[2] * sp], life: 0.7 + Math.random() * 0.7, size: 1.4 + Math.random() * 2.6, size1: 1.4, color: [0.14, 0.12, 0.1], alpha: 1, alpha1: 1, grav: 1100 });
     }
-    this.sparks(p0, n, P.spark, big ? 22 : 7, 480, { color1: P.spark1, life: 0.55, width: 1, stretch: 0.03, bias: 0.1, grav: 700, drag: 1.2 });
+    this.sparks(p0, n, P.spark, big ? 26 : 8, 560, { color1: P.spark1, life: 0.7, width: 0.7, stretch: 0.028, bias: 0.15, grav: 650, drag: 1.1 });
     // 6. embers drifting up after the blast
-    if (big) for (let i = 0; i < this.n(10); i++) {
-      this.later(0.08 + Math.random() * 0.2, () => {
+    if (big) for (let i = 0; i < this.n(12); i++) {
+      this.later(0.08 + Math.random() * 0.3, () => {
         const v = rndDir(n, 0.8); const sp = 40 + Math.random() * 90;
-        this.add.add({ pos: off(p0, v, 20 * Math.random()), vel: [v[0] * sp, v[1] * sp + 40, v[2] * sp], life: 0.9 + Math.random() * 0.8, size: 2.5, size1: 0.8, color: P.ember, color1: [0.6, 0.1, 0.02], alpha: 1, alpha1: 0, drag: 1.5, rise: 30, kind: PK.GLOW });
+        this.add.add({ pos: off(p0, v, 24 * Math.random()), vel: [v[0] * sp, v[1] * sp + 40, v[2] * sp], life: 1 + Math.random() * 1.2, size: 1.6, size1: 0.5, color: P.ember, color1: [0.6, 0.1, 0.02], alpha: 1, alpha1: 0, drag: 1.5, rise: 30, turb: 60, kind: PK.GLOW });
       });
     }
-    // 7. scorch + light punch
+    // 7. scorch + light punch (the light also lights the young smoke from inside)
     if (big) this.decal(pos, normal, this.scorchTex, 70 + Math.random() * 20, 25);
-    this.light(p0, P.light, big ? 400 : 160, big ? 0.5 : 0.25, { intensity: 2 });
+    const L = this.light(p0, P.light, big ? 420 : 170, big ? 0.7 : 0.3, { intensity: 2.2 });
+    L.curve = 2;
     // 8. camera shake with radius falloff
     if (camPos && big) {
       const d = Math.hypot(pos[0] - camPos.x, pos[1] - camPos.y, pos[2] - camPos.z);
@@ -610,58 +813,67 @@ export class Effects {
     }
   }
 
-  // grenade: grey wisps and a faint green spark so the arc stays readable
+  // grenade: a thin fuse smoke line and a faint green spark so the arc stays readable
   grenadeTrail(pos) {
-    this.smoke.add({ pos: [...pos], vel: [0, 10, 0], life: 0.55, size: 3, size1: 12, color: [0.44, 0.45, 0.42], color1: [0.22, 0.22, 0.2], alpha: 0.6, alpha1: 0, drag: 1, kind: PK.SMOKE, sizeEase: true, spin: 1 });
-    if (this.hi() && Math.random() < 0.5) this.add.add({ pos: [...pos], vel: [0, 0, 0], life: 0.18, size: 4, size1: 1, color: [0.55, 1, 0.3], alpha: 0.8, alpha1: 0, kind: PK.GLOW });
+    this.puff(pos, [0, 6, 0], 2.5, 12, 1.1, [0.55, 0.56, 0.53], 0.32, { kind: PK.MIST, drag: 1, rise: 6, turb: 10, fadeIn: 0.02 });
+    if (this.hi() && Math.random() < 0.5) this.add.add({ pos: [...pos], vel: [0, 0, 0], life: 0.15, size: 3, size1: 1, color: [0.55, 1, 0.3], alpha: 0.8, alpha1: 0, kind: PK.GLOW });
   }
 
   blood(pos, amount = 6) {
     for (let i = 0; i < amount; i++) {
       const v = rndDir([0, 1, 0], 1); const sp = 40 + Math.random() * 160;
-      this.smoke.add({ pos: [...pos], vel: [v[0] * sp, v[1] * sp, v[2] * sp], life: 0.4 + Math.random() * 0.3, size: 5, size1: 10, color: [0.6, 0.03, 0.02], color1: [0.3, 0, 0], alpha: 1, alpha1: 0, grav: 500, drag: 2 });
+      this.smoke.add({ pos: [...pos], vel: [v[0] * sp, v[1] * sp, v[2] * sp], life: 0.4 + Math.random() * 0.3, size: 2, size1: 1.6, color: [0.5, 0.03, 0.02], color1: [0.3, 0, 0], alpha: 1, alpha1: 0.6, grav: 700, drag: 1 });
     }
+    this.puff(pos, [0, 10, 0], 6, 22, 0.5, [0.42, 0.03, 0.02], 0.35, { kind: PK.MIST, drag: 4, rise: -10, turb: 6 });
   }
 
-  // A. rail: white-hot core ribbon, electric cyan halo, a tight spiral that unwinds and drifts,
-  // lingering about a second (spec 7.3 A / 7.4 rail row)
+  // A. rail: a thin white-hot core, a narrow electric halo, and an ionised vapour trail that
+  // hangs in the air, drifts and slowly curls apart; a sparse spiral of charged motes
   rail(start, end, color, normal, hitWall) {
     const cc = rgb(color);
     const s = new THREE.Vector3(...start), e = new THREE.Vector3(...end);
     const dir = e.clone().sub(s);
     const len = dir.length();
     dir.normalize();
-    this.streaks.add({ a: [...start], b: [...end], life: 0.55, width: 1.3, width1: 0.4, color: lerp3(cc, WHITE, 0.6), alpha: 1, alpha1: 0, tail: 1, hot: 1 });
-    this.streaks.add({ a: [...start], b: [...end], life: 1.0, width: 2.6, width1: 5, color: cc, alpha: 0.6, alpha1: 0, tail: 1, hot: 0.2 });
+    this.streaks.add({ a: [...start], b: [...end], life: 0.35, width: 0.9, width1: 0.2, color: lerp3(cc, WHITE, 0.7), alpha: 1, alpha1: 0, tail: 1, hot: 1, ease: true });
+    this.streaks.add({ a: [...start], b: [...end], life: 0.8, width: 2.2, width1: 4.5, color: cc, alpha: 0.45, alpha1: 0, tail: 1, hot: 0.1 });
     const up = Math.abs(dir.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
     const r1 = new THREE.Vector3().crossVectors(dir, up).normalize();
     const r2 = new THREE.Vector3().crossVectors(dir, r1).normalize();
-    const step = this.hi() ? 4 : 7;
-    for (let d = 8, i = 0; d < len; d += step, i++) {
-      const a = i * 0.42 * (step / 6);
-      const o = r1.clone().multiplyScalar(Math.cos(a) * 4).add(r2.clone().multiplyScalar(Math.sin(a) * 4));
-      const p = s.clone().addScaledVector(dir, d).add(o);
-      this.add.add({ pos: [p.x, p.y, p.z], vel: [o.x * 3, o.y * 3 + 4, o.z * 3], life: 0.9 + Math.random() * 0.3, size: 2.8, size1: 6, color: lerp3(cc, WHITE, 0.25), color1: cc, alpha: 0.85, alpha1: 0, drag: 2.2, kind: PK.GLOW });
+    // vapour: lit grey-blue mist puffs along the beam, born thin, swelling as they drift
+    const vstep = this.hi() ? 14 : 24;
+    const vap = lerp3([0.6, 0.66, 0.7], cc, 0.2);
+    for (let d = 10; d < Math.min(len, 3000); d += vstep) {
+      const p = s.clone().addScaledVector(dir, d + Math.random() * vstep);
+      const j = r1.clone().multiplyScalar((Math.random() - 0.5) * 6).add(r2.clone().multiplyScalar((Math.random() - 0.5) * 6));
+      this.puff([p.x + j.x, p.y + j.y, p.z + j.z], [j.x * 3, 4 + j.y * 3, j.z * 3], 4, 16 + Math.random() * 8, 1.6 + Math.random() * 0.8, vap, 0.22, { kind: PK.MIST, drag: 1.5, rise: 5, turb: 12, fadeIn: 0.03 });
     }
-    // muzzle ring at the start
-    this.flash(off(start, [dir.x, dir.y, dir.z], 6), this.ringTex, color, 3, 12, 0.15, 0.7);
+    // sparse spiral of charged motes
+    const step = this.hi() ? 6 : 10;
+    for (let d = 8, i = 0; d < len; d += step, i++) {
+      const a = i * 0.55;
+      const o = r1.clone().multiplyScalar(Math.cos(a) * 3.5).add(r2.clone().multiplyScalar(Math.sin(a) * 3.5));
+      const p = s.clone().addScaledVector(dir, d).add(o);
+      this.add.add({ pos: [p.x, p.y, p.z], vel: [o.x * 2, o.y * 2 + 3, o.z * 2], life: 0.5 + Math.random() * 0.3, size: 1.8, size1: 3, color: lerp3(cc, WHITE, 0.3), color1: cc, alpha: 0.6, alpha1: 0, drag: 2.2, kind: PK.GLOW });
+    }
     if (hitWall && normal) {
-      this.decal(end, normal, this.splatTex, 16, 20, color, true);
-      this.decal(end, normal, this.holeTex, 8, 20);
-      this.flash(off(end, normal, 3), this.starTex, lerp3(cc, WHITE, 0.4), 30, 40, 0.1, 1);
-      this.shockwave(end, normal, color, 26, 0.3, 0.8);
+      this.decal(end, normal, this.splatTex, 14, 20, color, true);
+      this.decal(end, normal, this.holeTex, 7, 20);
+      this.add.add({ pos: off(end, normal, 2), vel: [0, 0, 0], life: 0.12, size: 30, size1: 40, color: lerp3(cc, WHITE, 0.5), alpha: 0.9, alpha1: 0, kind: PK.GLOW });
       this.light(end, color, 150, 0.35);
-      this.sparks(end, normal, lerp3(cc, WHITE, 0.4), 10, 300, { color1: cc, life: 0.35, grav: 500 });
-      this.smoke.add({ pos: off(end, normal, 4), vel: [normal[0] * 20, normal[1] * 20 + 10, normal[2] * 20], life: 0.9, size: 8, size1: 24, color: [0.4, 0.45, 0.48], alpha: 0.5, alpha1: 0, drag: 2, kind: PK.SMOKE, sizeEase: true, spin: 0.5 });
+      this.sparks(end, normal, lerp3(cc, WHITE, 0.5), 12, 360, { color1: cc, life: 0.4, grav: 500, width: 0.5 });
+      this.dust(end, normal, 3, 60, 18, 1.4);
+      this.puff(off(end, normal, 4), [normal[0] * 20, normal[1] * 20 + 8, normal[2] * 20], 8, 30, 1.8, [0.5, 0.52, 0.55], 0.35, { drag: 2 });
     }
   }
 
-  // rocket trail: oil-black puffs telegraph the trajectory, with a hot orange exhaust core
+  // rocket trail: a hot exhaust flame, and a dense white-grey smoke trail that hangs in the air
+  // for a couple of seconds, expanding and curling as it drifts
   smokeTrail(pos, vel) {
-    const j = () => (Math.random() - 0.5) * 2.5;
-    this.smoke.add({ pos: [pos[0] + j(), pos[1] + j(), pos[2] + j()], vel: [vel[0] * 0.02, 16, vel[2] * 0.02], life: 0.95, size: 6, size1: 26, color: [0.24, 0.21, 0.19], color1: [0.13, 0.13, 0.13], alpha: 0.8, alpha1: 0, drag: 1, kind: PK.SMOKE, spin: (Math.random() - 0.5) * 1.5, sizeEase: true });
-    this.add.add({ pos: [...pos], vel: [0, 0, 0], life: 0.1, size: 10, size1: 3, color: [1, 0.66, 0.24], color1: [1, 0.3, 0.05], alpha: 1, alpha1: 0, kind: PK.FIRE });
-    if (this.hi() && Math.random() < 0.3) this.add.add({ pos: [...pos], vel: [j() * 20, j() * 20, j() * 20], life: 0.4, size: 1.8, size1: 0.6, color: [1, 0.7, 0.3], alpha: 1, alpha1: 0, kind: PK.GLOW, grav: 200 });
+    const j = () => (Math.random() - 0.5) * 2;
+    this.puff([pos[0] + j(), pos[1] + j(), pos[2] + j()], [vel[0] * 0.03 + j() * 8, 6 + j() * 8, vel[2] * 0.03 + j() * 8], 4, 24, 2.2, [0.66, 0.64, 0.62], 0.34, { color1: [0.55, 0.55, 0.56], drag: 1.2, rise: 8, turb: 16, fadeIn: 0.03, kind: Math.random() < 0.5 ? PK.SMOKE : PK.MIST });
+    this.add.add({ pos: [...pos], vel: [0, 0, 0], life: 0.08, size: 9, size1: 3, color: [1, 0.66, 0.24], color1: [1, 0.3, 0.05], alpha: 1, alpha1: 0, kind: PK.FIRE, spin: 8 });
+    if (this.hi() && Math.random() < 0.25) this.add.add({ pos: [...pos], vel: [j() * 40, j() * 40, j() * 40], life: 0.35, size: 1.2, size1: 0.4, color: [1, 0.7, 0.3], alpha: 1, alpha1: 0, kind: PK.GLOW, grav: 200 });
   }
 
   sparkle(pos, color, n = 20, spread = 30) {
@@ -675,8 +887,8 @@ export class Effects {
     this.time += dt;
     for (const tm of this.timers) { tm.t -= dt; if (tm.t <= 0) tm.fn(); }
     this.timers = this.timers.filter((tm) => tm.t > 0);
-    this.add.update(dt);
-    this.smoke.update(dt);
+    this.add.update(dt, this.time);
+    this.smoke.update(dt, this.time);
     this.streaks.update(dt);
     this.wet.update(dt);
     for (const f of this.flashes) {
@@ -709,7 +921,8 @@ export class Effects {
     const cands = this.lights.filter((l) => dyn || l.ambient).map((l) => {
       const p = l.follow ? l.follow() : l.pos;
       if (l.follow && p) l.pos = p;
-      const fade = l.life > 0 ? Math.max(0, 1 - l.t / l.life) : 1;
+      let fade = l.life > 0 ? Math.max(0, 1 - l.t / l.life) : 1;
+      if (l.curve) fade = Math.pow(fade, l.curve);
       const d = Math.hypot(l.pos[0] - camPos.x, l.pos[1] - camPos.y, l.pos[2] - camPos.z);
       return { l, fade, score: d - l.radius * 2 };
     }).sort((a, b) => a.score - b.score);
@@ -727,6 +940,7 @@ export class Effects {
   removeLight(l) { const i = this.lights.indexOf(l); if (i >= 0) this.lights.splice(i, 1); }
 }
 
+function norm(v) { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
 function rndDir(n, bias) {
   for (;;) {
     const v = [Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1];

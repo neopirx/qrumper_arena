@@ -65,6 +65,7 @@ export const GRAPHICS_DEFAULTS = {
   shake: 1,              // explosion camera shake
   decals: true,          // scorch marks and bullet holes
   sky: true,             // animated sky layers and drifting dust
+  lighting: 'baked',     // baked (lightmaps only) | dynamic (real-time sun shadows, per-pixel lamps, flicker)
 };
 export const GRAPHICS_PRESETS = {
   low: { renderScale: 0.75, antialias: false, texFilter: 'trilinear', particles: 'low', dynLights: false, bloom: false, holo: false, decals: false, sky: false },

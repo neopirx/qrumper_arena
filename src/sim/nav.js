@@ -83,6 +83,20 @@ export function buildNav(map, col) {
       continue;
     }
     const cx = Math.round(a.p[0] / G), cz = Math.round(a.p[2] / G);
+    // running leaps across gaps (bridges with a hole, stepping stones): only where there is no
+    // floor in between, and only when a run-up from behind `a` actually lands on `b`
+    for (let dz = -4; dz <= 4; dz++) for (let dx = -4; dx <= 4; dx++) {
+      const list = cells.get(`${cx + dx},${cz + dz}`);
+      if (!list) continue;
+      for (const b of list) {
+        if (b === a) continue;
+        const dy = b.p[1] - a.p[1];
+        const hd = Math.hypot(b.p[0] - a.p[0], b.p[2] - a.p[2]);
+        if (hd < 80 || hd > 210 || dy > 42 || dy < -160) continue;
+        if (sim.floorBetween(a, b)) continue;
+        if (sim.leap(a, b)) a.links.push({ to: b.i, cost: hd + 40, type: 'leap' });
+      }
+    }
     for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
       const list = cells.get(`${cx + dx},${cz + dz}`);
       if (!list) continue;
@@ -167,6 +181,44 @@ class LinkSim {
       // descending (stairs): landing a step or two below the target, right next to it, is fine
       if (ps.onGround && wasAir && b.p[1] < a.p[1] && feet < b.p[1] && feet > b.p[1] - 34 && hdb < 40) return true;
       if (!ps.onGround) wasAir = true;
+    }
+    return false;
+  }
+  // is there walkable floor under the midpoints of a -> b? (then it's not a gap)
+  floorBetween(a, b) {
+    for (const t of [0.35, 0.5, 0.65]) {
+      const p = [a.p[0] + (b.p[0] - a.p[0]) * t, Math.max(a.p[1], b.p[1]) + 30, a.p[2] + (b.p[2] - a.p[2]) * t];
+      const tr = this.col.trace(p, [p[0], Math.min(a.p[1], b.p[1]) - 40, p[2]], [-4, 0, -4], [4, 4, 4], MASK_PLAYER);
+      if (tr.fraction >= 1) return false;
+    }
+    return true;
+  }
+  // a running jump: start 64u behind a at full run speed, jump from a's spot (as the bot does)
+  leap(a, b) {
+    const hd = Math.hypot(b.p[0] - a.p[0], b.p[2] - a.p[2]);
+    const ux = (b.p[0] - a.p[0]) / hd, uz = (b.p[2] - a.p[2]) / hd;
+    const ps = makePlayerState();
+    const back = [a.p[0] - ux * 40, a.p[1] + 24.25, a.p[2] - uz * 40];
+    const tr0 = this.col.trace([a.p[0], a.p[1] + 24.25, a.p[2]], back, PLAYER_MINS, PLAYER_MAXS, MASK_PLAYER);
+    ps.origin = [...tr0.endpos];
+    ps.velocity = [ux * 320, 0, uz * 320];
+    ps.onGround = true;
+    const dt = 1 / 60;
+    const cmd = { forward: 1, side: 0, jump: false, crouch: false, pitch: 0, yaw: 0, time: 0, walljumpOnJump: false };
+    let jumped = false, wasAir = false;
+    for (let t = 0; t < 1.6; t += dt) {
+      cmd.yaw = yawTo(b.p[0] - ps.origin[0], b.p[2] - ps.origin[2]);
+      const along = (ps.origin[0] - a.p[0]) * ux + (ps.origin[2] - a.p[2]) * uz;
+      cmd.jump = !jumped && along > -4 && ps.onGround;
+      if (cmd.jump) jumped = true;
+      cmd.time = t * 1000;
+      pmove(ps, cmd, dt, this.col);
+      ps.events.length = 0;
+      for (const p of this.pads) if (inXZ(ps.origin[0], ps.origin[2], p.min, p.max) && ps.origin[1] - 24 < p.max[1]) return false;
+      const feet = ps.origin[1] - 24.25;
+      if (ps.onGround && wasAir) return Math.abs(feet - b.p[1]) < 4 && Math.hypot(b.p[0] - ps.origin[0], b.p[2] - ps.origin[2]) < 64;
+      if (!ps.onGround) wasAir = true;
+      if (feet < Math.min(a.p[1], b.p[1]) - 80) return false;
     }
     return false;
   }

@@ -209,6 +209,32 @@ $('gfxPreset').addEventListener('click', (e) => {
   syncGraphics(); applyGraphics(); saveSettings(settings);
 });
 syncGraphics();
+// lighting: baked lightmaps only, or dynamic (real-time sun shadows, per-pixel lamps)
+function syncLighting() { for (const b of $('gfxLighting').children) b.classList.toggle('sel', b.dataset.v === (G.lighting || 'baked')); }
+$('gfxLighting').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  G.lighting = b.dataset.v; syncLighting(); applyGraphics(); saveSettings(settings);
+});
+syncLighting();
+
+// slider fill: the track left of the thumb is painted with the accent (CSS reads --p)
+function fillRanges() {
+  for (const r of document.querySelectorAll('input[type=range]')) {
+    const p = ((+r.value - +r.min) / ((+r.max - +r.min) || 1)) * 100;
+    const v = p.toFixed(1) + '%';
+    if (r.style.getPropertyValue('--p') !== v) r.style.setProperty('--p', v);
+  }
+}
+document.addEventListener('input', (e) => { if (e.target.type === 'range') fillRanges(); });
+setInterval(fillRanges, 300);
+fillRanges();
+
+// the key list lives in the settings now (Controls tab)
+{
+  const keys = $('t-keys'), src = $('p-controls');
+  for (const el of [...src.children]) if (el.tagName !== 'H2' && !el.classList.contains('actions')) keys.appendChild(el);
+}
 
 // settings tabs
 const tabs = $('settings-tabs');
@@ -271,7 +297,7 @@ for (const [key, c] of Object.entries(CHARACTER_INFO)) {
   const b = document.createElement('button');
   b.className = 'char';
   b.dataset.c = key;
-  b.innerHTML = `<b>${c.name}</b><span>${c.blurb}</span>`;
+  b.innerHTML = `<i class="emb">${c.name[0]}</i><span class="ct"><b>${c.name}</b><span>${c.blurb}</span></span>`;
   b.addEventListener('click', () => { settings.character = key; saveSettings(settings); syncProfile(); if (!$('menu').classList.contains('setup')) saveProfile(); });
   charsEl.appendChild(b);
 }
@@ -311,6 +337,7 @@ function syncHome() {
   $('champ-name').textContent = info.name;
   $('champ-name').style.setProperty('--n', info.name.length);   // font sized so the name fits the stage
   $('champ-blurb').textContent = info.blurb;
+  $('champ-blurb-name').textContent = info.name;
   const kd = d.deaths ? (d.kills / d.deaths).toFixed(2) : (d.kills || 0).toFixed(2);
   $('home-stats').innerHTML = [['Level', L.level], ['Kills', d.kills || 0], ['Wins', d.wins || 0], ['K/D', kd]].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
   const badges = Object.entries(d.badges || {}).filter(([k, n]) => n && BADGES[k]?.icon).map(([k, n]) => `<span class="rb" title="${BADGES[k].name}: ${n}"><img src="/icons/badges/${BADGES[k].icon}.png" alt=""><i>${n}</i></span>`).join('');
@@ -338,13 +365,28 @@ $('setup-done').addEventListener('click', async () => {
 const syncBg = () => { $('bg-map').style.backgroundImage = `url('/thumbs/${settings.map}.jpg')`; };
 syncBg();
 
+// home: the map rotation as a strip of cards; a click picks the map for practice
+function renderHomeMaps() {
+  $('home-maps').innerHTML = '<div class="hm-head"><b>Map rotation</b><span>Pick one to practice on</span></div><div class="hm-list">' + Object.entries(MAPS).map(([key, m]) =>
+    `<button class="hm ${settings.map === key ? 'sel' : ''}" data-map="${key}" style="background-image:url('/thumbs/${key}.jpg')"><b>${m.def.name}</b><span>${m.tagline}</span></button>`).join('') + '</div>';
+}
+$('home-maps').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-map]');
+  if (!b) return;
+  audio.init();
+  settings.map = b.dataset.map; saveSettings(settings); syncBg(); renderHomeMaps();
+  for (const c of mapsEl.children) c.classList.toggle('sel', c.dataset.map === settings.map);
+  show('p-play');
+});
+renderHomeMaps();
+
 // map cards
 const mapsEl = $('maps');
 for (const [key, m] of Object.entries(MAPS)) {
   const card = document.createElement('button');
   card.className = 'map-card' + (settings.map === key ? ' sel' : '');
   card.dataset.map = key;
-  card.innerHTML = `<div class="map-thumb ${key}"></div><b>${m.def.name}</b><span>${m.tagline}</span><small>${m.players}</small>`;
+  card.innerHTML = `<div class="map-thumb" style="background-image:url('/thumbs/${key}.jpg')"></div><b>${m.def.name}</b><span>${m.tagline}</span><small>${m.players}</small>`;
   card.addEventListener('click', () => {
     settings.map = key; saveSettings(settings); fitGunPreview(); syncBg();
     for (const c of mapsEl.children) c.classList.toggle('sel', c.dataset.map === key);
@@ -364,7 +406,7 @@ $('quit').addEventListener('click', () => {
 
 document.addEventListener('keydown', (e) => {
   if (!session || session.net) return;
-  if (e.code === 'Enter' && session.game.state === 'intermission' && !session.paused) startMatch();
+  if (e.code === 'Enter' && session.game.state === 'intermission' && !session.paused) startMatch(null, session.nextMapKey || null);
 });
 
 function endSession() {
@@ -375,7 +417,7 @@ function endSession() {
 }
 
 // one loader for both kinds of match. net: { conn, start } from the server
-async function startMatch(net = null) {
+async function startMatch(net = null, mapOverride = null) {
   audio.init();
   audio.stopMusic(1.5);
   endSession();
@@ -383,7 +425,7 @@ async function startMatch(net = null) {
   $('menu').classList.toggle('online', !!net);
   if (previews) previews.detach();
   $('loading').classList.remove('hidden');
-  const mapKey = net ? net.start.map : settings.map;
+  const mapKey = net ? net.start.map : (mapOverride && MAPS[mapOverride] ? mapOverride : settings.map);
   const def = MAPS[mapKey].def;
   $('load-map').innerHTML = `<b>${def.name}</b><span>${def.description}</span>`;
   const prog = (p, msg) => { $('load-bar').style.width = Math.round(p * 100) + '%'; $('load-msg').textContent = msg; };
@@ -398,6 +440,9 @@ async function startMatch(net = null) {
       opts: { map: mapKey, bots: r.bots, skill: r.skill, fraglimit: r.fraglimit, timelimit: r.timelimit, doubleJump: !!r.doubleJump, level: profile.level.level },
       onPause: () => { show('p-pause'); $('menu').classList.remove('hidden'); },
       onMatchEnd: (mine) => profile.reportMatch(mine),
+      // map rotation: the next map with the same rules (offline; online the server starts it)
+      onNext: (map) => { if (session === s) startMatch(null, map); },
+      onQuit: () => $('quit').click(),
     });
     s.onProfile = (p) => profile.setFromServer(p);
     await s.load(prog);
@@ -473,7 +518,7 @@ for (const [key, m] of Object.entries(MAPS)) {
   const card = document.createElement('button');
   card.className = 'map-card';
   card.dataset.map = key;
-  card.innerHTML = `<div class="map-thumb ${key}"></div><b>${m.def.name}</b><span>${m.tagline}</span><small>${m.players}</small>`;
+  card.innerHTML = `<div class="map-thumb" style="background-image:url('/thumbs/${key}.jpg')"></div><b>${m.def.name}</b><span>${m.tagline}</span><small>${m.players}</small>`;
   card.addEventListener('click', () => sendRules({ map: key }));
   $('lobby-maps').appendChild(card);
 }

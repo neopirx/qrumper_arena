@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { brushFaces, CONTENTS_SOLID, MASK_SHOT } from '../sim/collision.js';
 import { dot } from '../sim/vec.js';
 import { dynLights, shared, toneGLSL } from './shared.js';
+import { texScale } from './textures.js';
 export { dynLights } from './shared.js';
 export { TextureBank } from './textures.js';
 
@@ -50,6 +51,17 @@ uniform vec3 emit;
 uniform float fullbright;
 uniform float time;
 uniform float specAmt;
+uniform float scrollV;
+uniform float dynOn;
+uniform sampler2D shAll;
+uniform sampler2D shWorld;
+uniform mat4 shMat;
+uniform vec3 sunL;
+uniform float sunK;
+uniform vec4 lampPos[8];
+uniform vec3 lampCol[8];
+uniform float lampFl[8];
+uniform int lampCount;
 varying vec2 vUv;
 varying vec2 vLm;
 varying vec3 vPos;
@@ -61,7 +73,8 @@ varying vec3 vEdge;
 ${toneGLSL}
 float hash1(float x) { return fract(sin(x * 12.9898) * 43758.5453); }
 void main() {
-  vec3 alb = texture2D(map, vUv).rgb;
+  vec2 uv = vUv + vec2(0.0, time * scrollV);   // flowing liquids (blood falls) scroll down
+  vec3 alb = texture2D(map, uv).rgb;
   vec3 n0 = normalize(vN);
   if (fullbright > 0.5) {
     // emissive: ignores all lighting and rides past the clamp (flat glowing white core)
@@ -83,7 +96,7 @@ void main() {
   alb *= 1.0 + vEdge.z * wall * top * 0.9;
   alb *= 1.0 - (1.0 - vEdge.z) * wall * (1.0 - smoothstep(0.0, 24.0, vEdge.y)) * 0.4;
 
-  vec3 tn = texture2D(nmap, vUv).xyz * 2.0 - 1.0;
+  vec3 tn = texture2D(nmap, uv).xyz * 2.0 - 1.0;
   tn.y = -tn.y;                       // DirectX-style normal maps
   tn.xy *= nmStrength;
   vec3 N = normalize(normalize(vT) * tn.x + normalize(vB) * tn.y + n0 * tn.z);
@@ -100,6 +113,35 @@ void main() {
   vec3 V = normalize(cameraPosition - vPos);
   float sheen = pow(max(dot(N, normalize(ld + V)), 0.0), 26.0) * clamp(dl, 0.0, 1.0) * (0.15 + lum * 0.9);
   light += lm * sheen * specAmt;
+  if (dynOn > 0.5) {
+    // real-time sun shadows of moving things (players, rockets, gibs): a texel is shadowed when
+    // something in the all-objects depth map sits in front of it but the world alone doesn't
+    vec3 sc = (shMat * vec4(vPos + n0 * 2.0, 1.0)).xyz * 0.5 + 0.5;
+    if (sunK > 0.0 && sc.x > 0.0 && sc.x < 1.0 && sc.y > 0.0 && sc.y < 1.0 && sc.z < 1.0) {
+      float sh = 0.0;
+      for (int k = 0; k < 4; k++) {
+        vec2 o = vec2(k == 1 ? 1.0 : k == 3 ? -1.0 : 0.0, k == 0 ? 1.0 : k == 2 ? -1.0 : 0.0) * 0.0006 + vec2(0.0003);
+        float a = texture2D(shAll, sc.xy + o).r, w = texture2D(shWorld, sc.xy + o).r;
+        sh += step(a, sc.z - 0.0006) * step(sc.z - 0.0006, w);
+      }
+      float facing = clamp(dot(n0, sunL) * 3.0, 0.0, 1.0);
+      light *= 1.0 - sh * 0.25 * facing * sunK;
+    }
+    // per-pixel lamps: the bump relief and highlights follow the real lamp positions, and the
+    // flickering ones breathe the light around them
+    for (int i = 0; i < 8; i++) {
+      if (i >= lampCount) break;
+      vec3 L = lampPos[i].xyz - vPos;
+      float d = length(L);
+      float a = max(0.0, 1.0 - d / lampPos[i].w);
+      a *= a;
+      vec3 Ln = L / max(d, 0.001);
+      float ndl = max(dot(N, Ln), 0.0);
+      float rel = ndl - max(dot(n0, Ln), 0.0);
+      float hl = pow(max(dot(N, normalize(Ln + V)), 0.0), 42.0) * (0.15 + lum);
+      light += lampCol[i] * a * (rel * 1.3 + hl * specAmt * 1.4 + ndl * lampFl[i]);
+    }
+  }
   for (int i = 0; i < 8; i++) {
     if (i >= dlCount) break;
     vec3 L = dlPos[i].xyz - vPos;
@@ -401,7 +443,7 @@ export async function buildWorld(map, col, bank, onProgress = () => {}) {
       const aV = [0, 0, 0]; aV[va] = 1;
       const T = projOnPlane(aU, n), Bv = projOnPlane(aV, n);
       const w = dot(cross3(n, T), Bv) >= 0 ? 1 : -1;
-      const sc = f.scale * TEX_UNITS;
+      const sc = f.scale * TEX_UNITS * texScale(f.tex);
       let y0 = 1e9, y1 = -1e9;
       for (const p of f.pts) { y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); }
       for (const p of f.pts) {
@@ -428,7 +470,7 @@ export async function buildWorld(map, col, bank, onProgress = () => {}) {
     const ec = emit != null ? new THREE.Color(emit) : new THREE.Color(1, 1, 1);
     const mat = new THREE.ShaderMaterial({
       vertexShader: worldVert, fragmentShader: worldFrag,
-      uniforms: { ...uniformsShared, map: { value: cm }, nmap: { value: nm }, emit: { value: ec }, fullbright: { value: emit != null ? 1 : 0 }, specAmt: { value: /metal|steel|plate|grate|pipe|tech|trim|panel|floor/i.test(tex) ? 0.6 : 0.3 } },
+      uniforms: { ...uniformsShared, map: { value: cm }, nmap: { value: nm }, emit: { value: ec }, fullbright: { value: emit != null ? 1 : 0 }, specAmt: { value: /metal|steel|plate|grate|pipe|tech|trim|panel|floor|blood/i.test(tex) ? 0.6 : 0.3 }, scrollV: { value: /bloodfall/.test(tex) ? 0.55 : /str_blood\b|str_blood$/.test(tex) ? 0.02 : 0 } },
     });
     materials.push(mat);
     const mesh = new THREE.Mesh(g, mat);

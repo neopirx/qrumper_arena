@@ -39,7 +39,7 @@ const slab = (b, top = T.floor) => ({ box: b, tex: { top, side: T.steel, bottom:
 export default {
   name: 'Skywalk',
   description: 'Duel map after Aerowalk: walkways strung across an open void in a steel shaft under the night sky.',
-  world: [-1088, -512, -960, 1088, 640, 960],
+  world: [-1280, -512, -960, 1280, 640, 960],
   defaults: { floor: T.floor, wall: T.wall, ceil: T.ceil },
   ambient: 0.16,
   sun: { dir: [0.45, 0.8, -0.4], color: [0.62, 0.78, 1.0], intensity: 1.05, sky: [0.32, 0.34, 0.62] },
@@ -66,6 +66,13 @@ export default {
     { b: [-1024, L2, -192, -960, 464, 192], floor: T.plates, wall: T.corr, ceil: T.ceil, trim: { h: 12, tex: T.hazard } },
     // east doorway room behind the raised east platform
     { b: [960, L1, -224, 1056, 352, 224], floor: T.floor, wall: T.wall2, ceil: T.ceil, trim: { h: 16, tex: T.trim }, strip: { y: 150, h: 4, color: CYAN } },
+    // flight control room behind the east doorway, and the service corridor back out to the NE platform
+    { b: [1056, L1, -320, 1248, 400, 320], floor: T.plates, wall: T.tech, ceil: T.ceil, trim: { h: 16, tex: T.trim }, strip: { y: 200, h: 4, color: CYAN } },
+    { b: [1120, L1, -704, 1248, 320, -320], floor: T.grate, wall: T.corr, ceil: T.ceil, trim: { h: 12, tex: T.hazard } },
+    { b: [960, L1, -704, 1120, 320, -576], floor: T.grate, wall: T.corr, ceil: T.ceil, trim: { h: 12, tex: T.hazard }, strip: { y: 120, h: 4, color: AMBER } },
+    // generator room off the west platform
+    { b: [-1248, L0, 256, -1000, 224, 640], floor: T.plates, wall: T.rust, ceil: T.ceil, trim: { h: 16, tex: T.hazard }, strip: { y: 170, h: 5, color: VOID } },
+    { b: [-1000, L0, 400, -960, 160, 528], floor: T.hazard, wall: T.trim, ceil: T.trim },
   ],
   solids: [
     // ---- main level (L0): west platform, centre, bridge
@@ -142,6 +149,42 @@ export default {
     { box: [-960, 520, -12, 960, 544, 12], tex: { top: T.trim, side: T.trim, bottom: T.steel2 } },
     { box: [-48, 480, -48, 48, 520, 48], tex: { top: T.trim, side: T.tech } },
     { box: [-40, 470, -40, 40, 480, 40], tex: T.trim, bevel: false, emit: ICE },
+
+    // ===== flight control: consoles facing the shaft, the duty officer's desk, a wall of screens =====
+    // (set back from the doorway with wide gaps between them, so the room can be walked through)
+    ...[-240, -80, 80, 240].map((z) => ({ box: [1100, L1, z - 40, 1136, L1 + 40, z + 40], tex: { top: T.tech, side: T.steel2 }, bevelTex: T.trim })),
+    ...[-240, -80, 80, 240].map((z) => ({ box: [1104, L1 + 40, z - 32, 1110, L1 + 64, z + 32], tex: T.trim, bevel: false, emit: Math.abs(z) === 240 ? AMBER : CYAN })),
+    { box: [1180, L1, -60, 1230, L1 + 36, 60], tex: { top: T.plates, side: T.steel }, bevelTex: T.trim },
+    { box: [1242, L1 + 80, -280, 1248, L1 + 200, 280], tex: T.trim, bevel: false, emit: 0x2a6aa0 },
+    { box: [1056, 360, -320, 1248, 380, 320], tex: { top: T.trim, side: T.trim, bottom: T.steel2 } },
+    // service corridor: cable trays, a toolbox, a busted vent
+    { box: [1236, L1 + 120, -704, 1248, L1 + 136, -320], tex: T.trim, bevel: false }, { box: [1236, L1 + 100, -704, 1248, L1 + 110, -320], tex: T.rust, bevel: false },
+    { box: [1140, L1, -500, 1190, L1 + 30, -460], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
+    { box: [980, L1, -700, 1040, L1 + 60, -650], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
+    { arch: [960, L1, -704, 976, 300, -576], axis: 'x', tex: { top: T.trim, side: T.steel }, thick: 8 },
+    // ===== generator room: two turbines with glowing rings, fuel drums, the breaker panel =====
+    ...[340, 540].flatMap((z) => [
+      { box: [-1200, L0, z - 56, -1080, L0 + 120, z + 56], tex: { top: T.trim, side: T.steel2 }, bevelTex: T.trim },
+      { box: [-1204, L0 + 56, z - 60, -1076, L0 + 64, z + 60], tex: T.trim, bevel: false, emit: VOID },
+      { box: [-1160, L0 + 120, z - 16, -1120, 224, z + 16], tex: T.trim, bevel: false },
+    ]),
+    ...[[-1040, 280], [-1040, 316], [-1010, 296]].map(([x, z]) => ({ box: [x - 14, L0, z - 14, x + 14, L0 + 40, z + 14], tex: { top: T.trim, side: T.rust }, bevel: false })),
+    { box: [-1248, L0 + 60, 600, -1240, L0 + 150, 636], tex: T.trim, bevel: false, emit: AMBER },
+    { arch: [-1000, L0, 400, -984, 160, 528], axis: 'x', tex: { top: T.trim, side: T.steel }, thick: 8 },
+    // ===== the shaft: floodlight masts on the platform corners, cargo, warning lamps, cables =====
+    ...[[-940, -430], [940, 430], [-940, 810], [940, -810]].flatMap(([x, z]) => {
+      const y = Math.abs(x) > 0 && z > 0 && x > 0 ? L1 : z < -600 ? L1 : L0;
+      return [
+        { box: [x - 8, y, z - 8, x + 8, y + 180, z + 8], tex: T.trim, bevel: false },
+        { box: [x - 18, y + 180, z - 14, x + 18, y + 200, z + 14], tex: { top: T.trim, side: T.steel2 } },
+        { box: [x - 14, y + 176, z - 10, x + 14, y + 180, z + 10], tex: T.trim, bevel: false, emit: ICE },
+      ];
+    }),
+    { box: [-940, L0, 600, -880, L0 + 48, 680], tex: { top: T.trim, side: T.corr }, bevelTex: T.hazard },
+    { box: [600, L0, 760, 670, L0 + 56, 830], tex: { top: T.trim, side: T.corr }, bevelTex: T.hazard },
+    { box: [620, L1, 340, 700, L1 + 40, 420], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
+    { box: [-960, 560, -120, 960, 566, -112], tex: T.trim, bevel: false }, { box: [-960, 548, 112, 960, 554, 120], tex: T.trim, bevel: false },
+    ...[[-160, -704], [160, -704]].map(([x, z]) => ({ box: [x - 6, 256, z - 4, x + 6, 268, z + 4], tex: T.trim, bevel: false, emit: 0xff3020 })),
   ],
   jumppads: [
     { at: [0, L0, -104], target: [0, L2 + 80, -790] },          // centre -> MH ledge
@@ -169,6 +212,9 @@ export default {
     // the void glow under the walkways
     [-600, -260, 500, VOID, 520, 1.1, { fixture: false }], [600, -260, -500, VOID, 520, 1.1, { fixture: false }],
     [-560, 340, -420, CYAN, 300, 0.8, { fixture: false }],
+    // control room, corridor, generator room
+    [1150, 330, 0, CYAN, 560, 1.4], [1100, 230, -200, AMBER, 300, 0.9, { fixture: false }], [1130, 260, 200, ICE, 300, 0.9, { fixture: false }], [1180, 280, -520, AMBER, 360, 0.8], [1040, 280, -640, AMBER, 300, 0.7],
+    [-1124, 200, 440, VOID, 460, 1.1], [-1140, 80, 340, VOID, 240, 1.0, { fixture: false }], [-1140, 80, 540, VOID, 240, 1.0, { fixture: false }],
   ],
   items: [
     { t: 'ra', at: [0, LB + 16, 752] },
@@ -185,10 +231,13 @@ export default {
     { t: 'am_rg', at: [0, L1, -784] }, { t: 'am_gl', at: [-860, L1, -640] }, { t: 'am_sg', at: [860, L0, 520] },
     { t: 'am_mg', at: [-860, L0, 760] }, { t: 'am_gl', at: [700, L1, -600] },
     { t: 'shard', at: [-400, 304, -560] }, { t: 'shard', at: [-688, 304, -304] },
+    { t: 'h50', at: [1200, L1, 200] }, { t: 'am_rl', at: [1200, L1, -200] }, { t: 'h5', at: [1180, L1, -420] }, { t: 'h5', at: [1180, L1, -560] },
+    { t: 'h25', at: [-1100, L0, 440] }, { t: 'am_gl', at: [-1200, L0, 600] }, { t: 'shard', at: [-1040, L0, 460] }, { t: 'shard', at: [-1040, L0, 500] },
   ],
   spawns: [
     { at: [-860, L0, 160], yaw: -90 }, { at: [-860, L0, -200], yaw: -90 }, { at: [860, L1, 200], yaw: 90 },
     { at: [860, L1, -200], yaw: 90 }, { at: [-700, L1, -760], yaw: -90 }, { at: [700, L1, -760], yaw: 90 },
     { at: [-700, L0, 700], yaw: -90 }, { at: [700, L0, 700], yaw: 90 }, { at: [120, LB, 760], yaw: 0 }, { at: [0, L0, 100], yaw: 180 },
+    { at: [1180, L1, 170], yaw: 90 }, { at: [1180, L1, -640], yaw: 0 }, { at: [-1150, L0, 440], yaw: -90 },
   ],
 };

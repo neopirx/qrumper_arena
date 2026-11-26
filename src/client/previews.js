@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { PlayerModel } from '../render/entities.js';
 import { ViewWeapon } from '../render/viewweapon.js';
+import { flameTextures } from '../render/effects.js';
 
 function starTexture() {
   const c = document.createElement('canvas');
@@ -78,7 +79,7 @@ export class Previews {
   // ---- weapon ----
   showWeapon(container) {
     if (!this.gun) {
-      this.gun = new ViewWeapon(this.assets, starTexture());
+      this.gun = new ViewWeapon(this.assets, flameTextures().burst);
       this.gun.showNow('mg');
     }
     this.attach(container, 'weapon');

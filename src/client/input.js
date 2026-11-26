@@ -51,7 +51,8 @@ export class Input {
   unlock() { if (document.pointerLockElement) document.exitPointerLock(); }
   press(code) { if (!this.down.has(code)) this.pressed.add(code); this.down.add(code); }
   key(e, isDown) {
-    if (!this.enabled) return;
+    // with the game input off (end-of-match podium) Tab still shows the scoreboard
+    if (!this.enabled) { if (e.code === 'Tab') { e.preventDefault(); if (isDown) this.down.add('Tab'); else this.down.delete('Tab'); } return; }
     if (e.code === 'Tab' || (this.locked && (e.code === 'Space' || e.code.startsWith('Arrow')))) e.preventDefault();
     if (e.repeat) return;
     if (isDown) this.press(e.code); else this.down.delete(e.code);

@@ -6,6 +6,8 @@ import { WEAPONS, WEAPON_ORDER, ITEMS, PLAYER_COLORS } from './defs.js';
 import { angleVectors, normalize, dot, makeRng } from './vec.js';
 import { XP } from './xp.js';
 
+const spawnCache = new WeakMap(); // spawn point -> free hull origin (or null)
+
 export const TICK = 1 / 125;
 const GRAVITY = 800;  // g_gravity, same as pmove
 export const GIB_HEALTH = -40;   // Q3 GIB_HEALTH: a kill that leaves the body this far below zero blows it apart
@@ -100,10 +102,34 @@ export class Game {
     return scored[Math.floor(this.rng() * half)].s;
   }
 
+  // A standing hull position at or near a spawn point that is not inside a brush. A spawn whose
+  // hull overlaps a brush (a prop placed over it) would leave the player stuck where they stand,
+  // so search outwards for the nearest free spot over solid ground. Cached per spawn point.
+  freeSpawnOrigin(s) {
+    if (spawnCache.has(s)) return spawnCache.get(s);
+    const free = (o) => !this.col.trace(o, o, PLAYER_MINS, PLAYER_MAXS, MASK_PLAYER).startsolid;
+    const grounded = (o) => this.col.trace(o, [o[0], o[1] - 64, o[2]], PLAYER_MINS, PLAYER_MAXS, MASK_PLAYER).fraction < 1;
+    const base = [s.at[0], s.at[1] + 24 + 1, s.at[2]];
+    let found = free(base) ? base : null;
+    for (let r = 8; !found && r <= 96; r += 8) {
+      for (let k = 0; k < 16 && !found; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        for (const dy of [0, 18]) {
+          const o = [base[0] + Math.cos(a) * r, base[1] + dy, base[2] + Math.sin(a) * r];
+          if (free(o) && grounded(o)) { found = o; break; }
+        }
+      }
+    }
+    spawnCache.set(s, found);
+    return found;
+  }
+
   spawn(p) {
-    const s = this.selectSpawn(p);
+    let s = this.selectSpawn(p);
+    if (!this.freeSpawnOrigin(s)) s = this.map.spawns.find((o) => this.freeSpawnOrigin(o)) || s;
     const ps = makePlayerState();
-    ps.origin = [s.at[0], s.at[1] + 24 + 1, s.at[2]];
+    const at = this.freeSpawnOrigin(s);
+    ps.origin = at ? [...at] : [s.at[0], s.at[1] + 24 + 1, s.at[2]];
     ps.yaw = s.yaw; ps.pitch = 0;
     ps.doubleJump = this.doubleJump;
     p.ps = ps;
@@ -224,7 +250,7 @@ export class Game {
   touchTriggers(p) {
     const ps = p.ps;
     const m = touchMovers(ps, p.cmd, this.pads, this.teles);
-    if (m.pad) this.emit({ type: 'jumppad', player: p.id, pos: [...m.pad.at] });
+    if (m.pad) { this.emit({ type: 'jumppad', player: p.id, pos: [...m.pad.at] }); if (p.bot) p.bot.onPad(); }
     if (m.tele) {
       this.emit({ type: 'teleport', player: p.id, from: m.from, to: [...ps.origin], yaw: m.tele.yaw });
       this.telefrag(p);

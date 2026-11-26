@@ -17,7 +17,7 @@ p.on('pageerror', (e) => console.log('pageerror', e.stack || e.message));
 p.on('console', (m) => { if (m.type() === 'error') console.log('console', m.text().slice(0, 300)); });
 await p.goto(`http://localhost:5199/?autostart=${map}&bots=${bots}&skill=1`);
 await p.waitForFunction(() => window.__session && window.__session.running, null, { timeout: 600000 });
-const views = VIEWS[map];
+const views = process.env.VIEWS ? JSON.parse(process.env.VIEWS) : VIEWS[map];
 for (let i = 0; i < views.length; i++) {
   await p.evaluate((v) => {
     const s = window.__session;

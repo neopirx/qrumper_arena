@@ -36,5 +36,6 @@ export const CHARACTER_INFO = {
   capi: { file: 'capi', name: 'Cappi', blurb: 'Unbothered. Unhurried. Unkillable, allegedly.' },
   froggy: { file: 'froggy', name: 'Froggy', blurb: 'Lives for the air time between bunny hops.' },
   pig: { file: 'pig_solider', name: 'Piggor', blurb: 'Standard-issue helmet, non-standard appetite.' },
+  seal: { file: 'seal', name: 'Seal', blurb: 'Slides into every fight. Never misses a clap.' },
 };
 export const CHARACTERS = Object.keys(CHARACTER_INFO);

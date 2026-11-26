@@ -190,6 +190,52 @@ const PROCS = {
   },
 };
 
+// Texture names: plain names are files in textures_01 (with normal maps), `g/<name>` the gothic
+// pack in textures_02 (256 px, no normals) and `s/<name>` the Level Eleven sci-fi pack in
+// textures_03 (64 px, no normals). `scale` is world units per repeat relative to TEX_UNITS.
+const SCIFI = '/textures/textures_03/Level Eleven Games Sci-Fi Texture Pack v1/';
+export function texSource(name) {
+  if (name.startsWith('g/')) return { color: `/textures/textures_02/${name.slice(2)}.png`, normal: null, bump: 2.2 };
+  if (name.startsWith('s/')) return { color: `${SCIFI}${name.slice(2)}.png`, normal: null, bump: 3.0 };
+  return { color: `/textures/textures_01/Color Maps/${name}.png`, normal: `/textures/textures_01/Normal Maps/${name}_normal.png` };
+}
+export const texScale = (name) => (typeof name === 'string' && name.startsWith('s/') ? 0.5 : 1);
+
+function upscale(img, min) {
+  const k = Math.max(1, Math.round(min / Math.max(img.width, img.height)));
+  const c = document.createElement('canvas');
+  c.width = img.width * k; c.height = img.height * k;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = '#000'; g.fillRect(0, 0, c.width, c.height);   // masked textures: holes go black
+  g.drawImage(img, 0, 0, c.width, c.height);
+  return g.getImageData(0, 0, c.width, c.height);
+}
+
+// tangent-space normal map (DirectX convention like the main pack) from luminance as height
+function heightNormal(col, strength = 2.5) {
+  const w = col.width, h = col.height, c = col.data;
+  const H = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) H[i] = (c[i * 4] * 0.3 + c[i * 4 + 1] * 0.59 + c[i * 4 + 2] * 0.11) / 255;
+  // soften so the normals describe shapes (bevels, rivets, bricks), not pixel noise
+  const B = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let s = 0;
+    for (let d = -1; d <= 1; d++) for (let e = -1; e <= 1; e++) s += H[((y + d + h) % h) * w + ((x + e + w) % w)];
+    B[y * w + x] = s / 9;
+  }
+  const out = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = (B[y * w + (x + 1) % w] - B[y * w + (x - 1 + w) % w]) * strength;
+    const dy = (B[((y + 1) % h) * w + x] - B[((y - 1 + h) % h) * w + x]) * strength;
+    let nx = -dx, ny = dy, nz = 1;   // ny: +down in image space (DirectX green)
+    const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
+    const i = (y * w + x) * 4;
+    out[i] = 128 + nx * 127; out[i + 1] = 128 + ny * 127; out[i + 2] = 128 + nz * 127; out[i + 3] = 255;
+  }
+  return { width: w, height: h, data: out };
+}
+
 export class TextureBank {
   constructor() {
     this.cache = new Map();
@@ -208,12 +254,15 @@ export class TextureBank {
 
   async _make(name) {
     if (PROCS[name]) return { map: dataTex(new Uint8Array(canvas2d(PROCS[name])), SIZE, SIZE), nmap: this.flat };
-    const [ci, ni] = await Promise.all([
-      loadImage(`/textures/textures_256/Color Maps/${name}.png`),
-      loadImage(`/textures/textures_256/Normal Maps/${name}_normal.png`),
-    ]);
+    const src = texSource(name);
+    const [ci, ni] = await Promise.all([loadImage(src.color), src.normal ? loadImage(src.normal) : null]);
     if (!ci) return { map: this.white, nmap: this.flat };
-    const col = pixels(ci), nrm = ni ? pixels(ni) : null;
+    // small pixel-art textures (the 64 px sci-fi pack) are blown up with nearest sampling so their
+    // texels stay crisp under trilinear / anisotropic filtering
+    const col = upscale(ci, SIZE);
+    // packs without normal maps get one derived from the colour's luminance, so the paint pass
+    // (seam AO, top-edge highlights) and the normal-mapped lighting still have something to bite on
+    const nrm = ni ? pixels(ni) : heightNormal(col, src.bump);
     const map = dataTex(new Uint8Array(paint(col, nrm).buffer), col.width, col.height);
     let nmap = this.flat;
     if (ni) {

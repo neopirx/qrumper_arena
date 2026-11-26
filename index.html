@@ -17,7 +17,7 @@
       <header class="topbar">
         <div class="logo brand">QRUMPER</div>
         <nav class="mainnav" id="mainnav">
-          <button data-go="p-main">Home</button><button data-go="p-mp">Multiplayer</button><button data-go="p-play">Practice</button><button data-go="p-profile">Fighter</button><button data-go="p-settings">Settings</button><button data-go="p-controls">Controls</button>
+          <button data-go="p-main">Home</button><button data-go="p-play">Practice</button><button data-go="p-mp">Multiplayer</button><button data-go="p-profile">Fighter</button><button data-go="p-settings">Settings</button>
         </nav>
         <button class="chip" id="chip" data-go="p-profile" title="Your fighter">
           <span class="lv" id="chip-lv">1</span>
@@ -28,15 +28,17 @@
       <div class="menu-inner">
         <div class="panel home" id="p-main">
           <div class="home-left">
-            <div class="kicker">Arena · Free for all</div>
+            <div class="kicker"><i></i>Arena shooter · Free for all</div>
             <h1 class="home-title">Ready<br />to <em>frag?</em></h1>
+            <p class="home-sub">Strafe-jump, rocket-jump and rail your way to the top of the board. CPMA movement, five weapons, no mercy.</p>
             <div class="modes">
-              <button class="mode primary" data-go="p-mp"><b>Multiplayer</b><span>Create a room or join friends</span></button>
-              <button class="mode" data-go="p-play"><b>Practice</b><span>Free for all against bots</span></button>
+              <button class="mode primary" data-go="p-play"><span class="mi">&#9654;</span><span class="mt"><b>Practice</b><span>Free for all against bots</span></span></button>
+              <button class="mode" data-go="p-mp"><span class="mi">&#9673;</span><span class="mt"><b>Multiplayer</b><span>Create a room or join friends</span></span></button>
             </div>
             <div class="stats" id="home-stats"></div>
           </div>
-          <div class="home-stage" id="home-stage"><div class="champ-name" id="champ-name"></div><div class="champ-blurb" id="champ-blurb"></div></div>
+          <div class="home-stage" id="home-stage"><div class="stage-floor"></div><div class="champ-name" id="champ-name"></div><div class="champ-card"><small>Your fighter</small><b id="champ-blurb-name"></b><span class="champ-blurb" id="champ-blurb"></span><button class="btn small" data-go="p-profile">Change fighter</button></div></div>
+          <div class="home-maps" id="home-maps"></div>
         </div>
 
         <div class="panel hidden" id="p-play">
@@ -82,42 +84,52 @@
         </div>
 
         <div class="panel hidden" id="p-profile">
-          <h2 id="profile-title">Fighter</h2>
-          <p class="note setup-only">Pick a name and a fighter. Your XP, levels and stats are saved to this profile.</p>
+          <div class="phead"><h2 id="profile-title">Fighter</h2><span class="psub setup-only">Pick a name and a fighter. Your XP, levels and stats are saved to this profile.</span></div>
           <div class="profile">
-            <div class="profile-stage" id="profile-stage"><div class="who" id="profile-who"></div></div>
+            <div class="profile-stage" id="profile-stage"><div class="stage-floor"></div><div class="who" id="profile-who"></div><div class="drag-hint">Drag to turn</div></div>
             <div class="profile-fields">
-              <label class="cap" for="name">Name</label>
-              <input type="text" id="name" maxlength="16" spellcheck="false" autocomplete="off" />
-              <label class="cap">Fighter</label>
-              <div class="chars" id="chars"></div>
-              <label class="cap">Colour</label>
-              <div class="swatches" id="swatches"></div>
-              <div class="career" id="career"></div>
+              <div class="field"><label class="cap" for="name">Name</label>
+              <input type="text" id="name" maxlength="16" spellcheck="false" autocomplete="off" /></div>
+              <div class="field"><label class="cap">Fighter</label>
+              <div class="chars" id="chars"></div></div>
+              <div class="field"><label class="cap">Colour</label>
+              <div class="swatches" id="swatches"></div></div>
+              <div class="field not-setup"><label class="cap">Career</label>
+              <div class="career" id="career"></div></div>
             </div>
           </div>
           <div class="actions"><button class="btn not-setup" data-go="p-main">Back</button><span class="setup-only"></span><button class="btn primary setup-only" id="setup-done">Enter the arena</button></div>
         </div>
 
       <div class="panel hidden" id="p-settings">
-        <h2>Settings</h2>
+        <div class="phead"><h2>Settings</h2></div>
+        <div class="settings-body">
         <div class="tabs" id="settings-tabs">
-          <button data-tab="t-game" class="sel">Game</button><button data-tab="t-weapon">Weapons &amp; crosshair</button><button data-tab="t-gfx">Graphics</button><button data-tab="t-hud">HUD</button>
+          <button data-tab="t-game" class="sel"><b>Game</b><small>Mouse, zoom, audio</small></button><button data-tab="t-weapon"><b>Weapons</b><small>Viewmodel &amp; crosshair</small></button><button data-tab="t-gfx"><b>Graphics</b><small>Quality &amp; lighting</small></button><button data-tab="t-hud"><b>HUD</b><small>Size &amp; readouts</small></button><button data-tab="t-keys"><b>Controls</b><small>Keys &amp; movement</small></button>
         </div>
         <div class="tab" id="t-game">
-          <div class="row"><label>Sensitivity</label><input type="range" id="sensitivity" min="0.5" max="10" step="0.1" /><output id="sensitivity-v"></output></div>
-          <div class="row"><label>Field of view</label><input type="range" id="fov" min="80" max="130" step="1" /><output id="fov-v"></output></div>
-          <div class="row"><label>Volume</label><input type="range" id="volume" min="0" max="1" step="0.05" /><output id="volume-v"></output></div>
-          <div class="row"><label>Music</label><input type="range" id="musicVolume" min="0" max="1" step="0.05" /><output id="musicVolume-v"></output></div>
-          <div class="row check"><label><input type="checkbox" id="invertMouse" /> Invert mouse</label><label><input type="checkbox" id="walljumpOnJump" /> Walljump with jump key</label></div>
-          <div class="row check"><label><input type="checkbox" id="autoSwitch" /> Switch on pickup</label><label><input type="checkbox" id="hitSounds" /> Hit sounds</label></div>
-          <div class="row check"><label><input type="checkbox" id="gore" /> Blood and gibs</label><label><input type="checkbox" id="announcer" /> Announcer</label></div>
-          <div class="row"><label>Camera motion</label><input type="range" id="camMotion" min="0" max="1.5" step="0.05" /><output id="camMotion-v"></output></div>
-          <div class="row"><label>Rail zoom FOV</label><input type="range" id="zoomFov" min="15" max="80" step="1" /><output id="zoomFov-v"></output></div>
-          <div class="row"><label>Other zoom</label><input type="range" id="zoomOther" min="0" max="0.4" step="0.01" /><output id="zoomOther-v"></output></div>
-          <div class="row"><label>Zoom sens.</label><input type="range" id="zoomSens" min="0.3" max="1.5" step="0.05" /><output id="zoomSens-v"></output></div>
-          <div class="row check"><label><input type="checkbox" id="zoomToggle" /> Zoom toggles (instead of hold)</label><span></span></div>
-          <div class="row"><label>Menu size</label><input type="range" id="menuScale" min="0" max="2.5" step="0.05" /><output id="menuScale-v"></output></div>
+          <section class="group"><h3>Mouse &amp; view</h3>
+            <div class="row"><label>Sensitivity</label><input type="range" id="sensitivity" min="0.5" max="10" step="0.1" /><output id="sensitivity-v"></output></div>
+            <div class="row"><label>Field of view</label><input type="range" id="fov" min="80" max="130" step="1" /><output id="fov-v"></output></div>
+            <div class="row"><label>Camera motion</label><input type="range" id="camMotion" min="0" max="1.5" step="0.05" /><output id="camMotion-v"></output></div>
+            <div class="row check"><label><input type="checkbox" id="invertMouse" /> Invert mouse</label><span></span></div>
+          </section>
+          <section class="group"><h3>Zoom</h3>
+            <div class="row"><label>Rail zoom FOV</label><input type="range" id="zoomFov" min="15" max="80" step="1" /><output id="zoomFov-v"></output></div>
+            <div class="row"><label>Other zoom</label><input type="range" id="zoomOther" min="0" max="0.4" step="0.01" /><output id="zoomOther-v"></output></div>
+            <div class="row"><label>Zoom sens.</label><input type="range" id="zoomSens" min="0.3" max="1.5" step="0.05" /><output id="zoomSens-v"></output></div>
+            <div class="row check"><label><input type="checkbox" id="zoomToggle" /> Zoom toggles (instead of hold)</label><span></span></div>
+          </section>
+          <section class="group"><h3>Audio</h3>
+            <div class="row"><label>Volume</label><input type="range" id="volume" min="0" max="1" step="0.05" /><output id="volume-v"></output></div>
+            <div class="row"><label>Music</label><input type="range" id="musicVolume" min="0" max="1" step="0.05" /><output id="musicVolume-v"></output></div>
+            <div class="row check"><label><input type="checkbox" id="hitSounds" /> Hit sounds</label><label><input type="checkbox" id="announcer" /> Announcer</label></div>
+          </section>
+          <section class="group"><h3>Gameplay</h3>
+            <div class="row check"><label><input type="checkbox" id="walljumpOnJump" /> Walljump with jump key</label><label><input type="checkbox" id="autoSwitch" /> Switch on pickup</label></div>
+            <div class="row check"><label><input type="checkbox" id="gore" /> Blood and gibs</label><span></span></div>
+            <div class="row"><label>Menu size</label><input type="range" id="menuScale" min="0" max="2.5" step="0.05" /><output id="menuScale-v"></output></div>
+          </section>
         </div>
         <div class="tab gun hidden" id="t-weapon">
           <div class="gun-left">
@@ -143,6 +155,8 @@
         </div>
         <div class="tab hidden" id="t-gfx">
           <div class="row wide"><label>Preset</label><div class="seg" id="gfxPreset"><button data-v="low">Low</button><button data-v="medium">Medium</button><button data-v="high">High</button><button data-v="ultra">Ultra</button><button data-v="custom">Custom</button></div></div>
+          <div class="row wide"><label>Lighting</label><div class="seg" id="gfxLighting"><button data-v="baked">Baked (classic)</button><button data-v="dynamic">Dynamic</button></div></div>
+          <p class="note small">Dynamic lighting adds real-time sun shadows from players, rockets and grenades, per-pixel specular on the map's lamps and flickering light sources. Heavier on the GPU.</p>
           <div class="row"><label>Resolution</label><input type="range" id="gfx-renderScale" min="0.5" max="2" step="0.05" /><output id="gfx-renderScale-v"></output></div>
           <div class="row"><label>Textures</label><select id="gfx-texFilter"><option value="aniso">Anisotropic 16×</option><option value="trilinear">Trilinear</option><option value="nearest">Point-sampled (software look)</option></select><span></span></div>
           <div class="row"><label>Effects</label><select id="gfx-particles"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><span></span></div>
@@ -156,6 +170,8 @@
           <div class="row"><label>HUD size</label><input type="range" id="hudScale" min="0.7" max="1.5" step="0.05" /><output id="hudScale-v"></output></div>
           <div class="row check"><label><input type="checkbox" id="speedometer" /> Speedometer</label><label><input type="checkbox" id="showFps" /> Show FPS</label></div>
           <div class="row check"><label><input type="checkbox" id="weaponBarAlways" /> Always show weapon bar</label><span></span></div>
+        </div>
+        <div class="tab hidden" id="t-keys"></div>
         </div>
         <div class="actions"><button class="btn" id="settings-back">Back</button></div>
       </div>

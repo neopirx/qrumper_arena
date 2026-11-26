@@ -18,6 +18,15 @@ export const shared = {
   gradeSat: { value: 0.6 },                       // environment saturation ration
   gradeTint: { value: new THREE.Color(1, 1, 1) },  // multiplied into environment albedo
   time: { value: 0 },
+  // dynamic lighting (Graphics -> Lighting: Dynamic), driven by render/dynlight.js
+  dynOn: { value: 0 },
+  shAll: { value: null }, shWorld: { value: null },
+  shMat: { value: new THREE.Matrix4() },
+  sunL: { value: new THREE.Vector3(0, 1, 0) }, sunK: { value: 0 },
+  lampPos: { value: Array.from({ length: 8 }, () => new THREE.Vector4(0, -1e5, 0, 1)) },
+  lampCol: { value: Array.from({ length: 8 }, () => new THREE.Vector3()) },
+  lampFl: { value: new Array(8).fill(0) },
+  lampCount: { value: 0 },
 };
 
 // GLSL: the shared "stage" tone shaper. Lets lit values ride up to ~2x before clipping to a flat

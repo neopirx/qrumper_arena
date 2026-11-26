@@ -114,9 +114,13 @@ export class Gore {
   blob(pos, v, sp, size, life = 0.6) {
     this.fx.smoke.add({ pos: [...pos], vel: [v[0] * sp, v[1] * sp, v[2] * sp], life: life * (0.7 + Math.random() * 0.6), size, size1: size * 0.7, color: BLOOD[(Math.random() * 3) | 0], color1: [0.26, 0, 0], alpha: 1, alpha1: 0.85, grav: GRAV });
   }
-  // red mist: hard-edged painted puffs (the smoke card), never glowing
+  // blood mist: an aerosol of fine droplets, lit by the room (dark red in shadow, never glowing).
+  // It bursts out fast, stalls almost at once under heavy drag, swells and thins out while the
+  // heavier part of it sinks; a spray cell of visible droplets rides along at the front.
   mist(pos, v, sp, s0, s1, life, alpha = 0.8) {
-    this.fx.smoke.add({ pos: [...pos], vel: [v[0] * sp, v[1] * sp, v[2] * sp], life, size: s0, size1: s1, color: [0.52, 0.04, 0.03], color1: [0.24, 0.01, 0.01], alpha, alpha1: 0, drag: 3.5, kind: 2, spin: (Math.random() - 0.5) * 2, sizeEase: true, ease: true });
+    const c = BLOOD[(Math.random() * 3) | 0];
+    this.fx.smoke.add({ pos: [...pos], vel: [v[0] * sp, v[1] * sp, v[2] * sp], life: life * (0.85 + Math.random() * 0.3), size: s0, size1: s1, color: [c[0] * 0.85, c[1], c[2]], color1: [0.3, 0.02, 0.015], alpha: alpha * 0.55, alpha1: 0, ease: true, fadeIn: 0.03, drag: 6, grav: 40, turb: 10, kind: 5, spin: (Math.random() - 0.5) * 1.2, sizeEase: true });
+    if (Math.random() < 0.7) this.fx.smoke.add({ pos: [...pos], vel: [v[0] * sp * 1.6, v[1] * sp * 1.6, v[2] * sp * 1.6], life: life * 0.55, size: s0 * 0.6, size1: s1 * 0.8, color: [0.4, 0.02, 0.015], alpha: alpha * 0.8, alpha1: 0, drag: 5, grav: 160, kind: 6, spin: (Math.random() - 0.5) * 2, sizeEase: true });
   }
 
   // A hit: a jet out of the exit wound along the shot, a smaller spurt back out of the entry,
@@ -136,7 +140,7 @@ export class Gore {
     const back = [-d[0], -d[1] + 0.3, -d[2]];
     for (let i = 0; i < fx.n(2 + heavy * 6); i++) this.drop(pos, rndDir(back, 1.2), 80 + Math.random() * 160, 1 + Math.random());
     // mist
-    for (let i = 0; i < fx.n(1 + heavy * 4); i++) this.mist(pos, rndDir(d, 0.5), 20 + Math.random() * 60, 6 + damage * 0.08, 18 + damage * 0.22, 0.35 + Math.random() * 0.25, 0.7);
+    for (let i = 0; i < fx.n(1 + heavy * 4); i++) this.mist(pos, rndDir(d, 0.6), 60 + Math.random() * 140, 5 + damage * 0.06, 22 + damage * 0.3, 0.6 + Math.random() * 0.4, 0.8);
     // splatter: the wall behind the victim, sometimes the floor under it
     const reach = 90 + damage * 1.8;
     const tries = damage >= 60 ? 3 : damage >= 20 ? 2 : 1;
@@ -160,8 +164,8 @@ export class Gore {
     // rolling cloud: a dense core, then a looser outer layer a beat later
     // (flattened: the cloud rolls outward more than it rises)
     const flat = (v) => { v[1] *= 0.45; return v; };
-    for (let i = 0; i < fx.n(16); i++) this.mist(jitter(30, 26), flat(rndDir([0, 0.2, 0], 0)), 70 + Math.random() * 150, 22 + Math.random() * 16, 70 + Math.random() * 50, 0.9 + Math.random() * 0.7, 0.92);
-    fx.later(0.07, () => { for (let i = 0; i < fx.n(10); i++) this.mist(jitter(50, 30), flat(rndDir([0, 0.3, 0], 0)), 110 + Math.random() * 140, 30 + Math.random() * 20, 100 + Math.random() * 50, 1.1 + Math.random() * 0.6, 0.6); });
+    for (let i = 0; i < fx.n(16); i++) this.mist(jitter(30, 26), flat(rndDir([0, 0.2, 0], 0)), 120 + Math.random() * 260, 20 + Math.random() * 16, 80 + Math.random() * 60, 1.4 + Math.random() * 0.9, 0.95);
+    fx.later(0.07, () => { for (let i = 0; i < fx.n(10); i++) this.mist(jitter(50, 30), flat(rndDir([0, 0.3, 0], 0)), 160 + Math.random() * 200, 30 + Math.random() * 20, 120 + Math.random() * 60, 1.8 + Math.random() * 0.8, 0.6); });
     fx.flash(c0, fx.glowTex, 0x8a0a06, 50, 120, 0.16, 0.6);
     fx.flash(c0, fx.glowTex, 0xff2010, 20, 60, 0.07, 0.5);
     // a quick red light so the burst reads in the dark

@@ -210,6 +210,55 @@ export default {
     { box: [-1216, LG, -1472, -1088, LG + 32, -1344], tex: { top: T.trim, side: T.rust } },
     { box: [1088, LS, 1280, 1216, LS + 48, 1472], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
     { box: [-1216, LS, 1280, -1088, LS + 64, 1472], tex: { top: T.trim, side: T.rust } },
+
+    // ===================== set dressing: who lived here, what happened =====================
+    // courtyard: a dry fountain with a broken statue, market stalls with awnings left behind
+    { box: [-312, 0, 248, -216, 20, 344], tex: { top: T.paving2, side: T.stone2 }, bevelTex: T.trim },
+    { box: [-282, 20, 278, -246, 64, 314], tex: { top: T.stone, side: T.stone }, bevelTex: T.trim },
+    { box: [-276, 64, 284, -252, 88, 308], tex: T.stone2 },
+    { box: [216, 0, -344, 312, 20, -248], tex: { top: T.paving2, side: T.stone2 }, bevelTex: T.trim },
+    { box: [246, 20, -314, 282, 48, -278], tex: T.stone },
+    ...[[-470, -120], [470, 120]].flatMap(([x, z]) => [
+      { box: [x - 40, 0, z - 56, x + 40, 36, z + 56], tex: { top: T.planks, side: T.wood }, bevelTex: T.trim },
+      { box: [x - 36, 36, z - 52, x - 30, 112, z - 46], tex: T.trim, bevel: false }, { box: [x + 30, 36, z - 52, x + 36, 112, z - 46], tex: T.trim, bevel: false },
+      { box: [x - 36, 36, z + 46, x - 30, 112, z + 52], tex: T.trim, bevel: false }, { box: [x + 30, 36, z + 46, x + 36, 112, z + 52], tex: T.trim, bevel: false },
+      { cut: [x - 48, 112, z - 64, x + 48, 128, z + 64], planes: [[0, 1, 0.25, 0, 128, z - 64]], tex: { top: T.shutters, side: T.trim, bottom: T.shutters }, bevel: false },
+    ]),
+    // lanterns on posts around the court
+    ...[[-400, 400], [400, -400], [-400, -400], [400, 400]].flatMap(([x, z]) => [
+      { box: [x - 5, 0, z - 5, x + 5, 120, z + 5], tex: T.trim, bevel: false },
+      { box: [x - 10, 120, z - 10, x + 10, 140, z + 10], tex: T.trim, bevel: false, emit: GOLDW },
+    ]),
+    // great hall: banquet tables, benches, a throne on the west dais, banners on the walls, hearth
+    ...[[-220, -1300, -860], [400, -1180, -1000]].flatMap(([z, x0, x1]) => [
+      { box: [x0, 0, z, x1, 30, z + 64], tex: { top: T.planks, side: T.wood }, bevelTex: T.trim },
+      { box: [x0, 0, z - 28, x1, 14, z - 12], tex: T.planks, bevel: false }, { box: [x0, 0, z + 76, x1, 14, z + 92], tex: T.planks, bevel: false },
+    ]),
+    { box: [-1472, 0, 40, -1420, 96, 120], tex: { top: T.trim, side: T.stone2 }, bevelTex: T.trim },
+    { box: [-1472, 96, 40, -1456, 150, 120], tex: T.stone2, bevel: false },
+    ...[-1300, -1100, -900].map((x) => ({ box: [x, 180, 634, x + 64, 300, 640], tex: T.trim, bevel: false, emit: 0x8a1a12 })),
+    { box: [-1100, 0, 600, -960, 120, 640], tex: { top: T.trim, side: T.brickOld }, bevelTex: T.trim },
+    { box: [-1080, 10, 618, -980, 60, 640], tex: T.trim, bevel: false, emit: 0xff7a20 },
+    // forge hall: anvils, ingot pallets, a hood over the lava pit, quench troughs
+    ...[[820, -300], [820, 300], [1350, -300]].map(([x, z]) => ({ box: [x - 24, LE, z - 14, x + 24, LE + 34, z + 14], tex: { top: T.metal, side: T.rust }, bevelTex: T.trim })),
+    { cut: [960, 300, -384, 1216, 416, 384], planes: [[0, -1, 0.6, 0, 300, 384], [0, -1, -0.6, 0, 300, -384]], tex: { top: T.beams, side: T.rust, bottom: T.rust }, bevel: false },
+    { box: [1300, LE, 320, 1440, LE + 24, 380], tex: { top: T.metal, side: T.rust }, bevelTex: T.hazard },
+    { box: [1304, LE + 24, 324, 1436, LE + 26, 376], tex: T.trim, bevel: false, emit: 0x30a0ff },
+    // chem vault: storage tanks with fill-level lights, a lab bench, pipe racks over the channel
+    ...[[-560, 760], [560, 760], [-560, 1300], [560, 1300]].flatMap(([x, z]) => [
+      { box: [x - 36, LS, z - 36, x + 36, 140, z + 36], tex: { top: T.trim, side: T.chem }, bevelTex: T.trim },
+      { box: [x - 38, 40, z - 38, x + 38, 46, z + 38], tex: T.trim, bevel: false, emit: CHEM },
+    ]),
+    { box: [-200, LS, 900, 200, LS + 36, 940], tex: { top: T.tiles, side: T.metal }, bevelTex: T.trim },
+    { box: [-640, 180, 1080, 640, 192, 1096], tex: T.trim, bevel: false }, { box: [-640, 196, 1080, 640, 206, 1092], tex: T.rust, bevel: false },
+    // north wing (research): display cases, desks, a big lens on a gimbal over the pit
+    ...[-500, 500].flatMap((x) => [
+      { box: [x - 40, LG, -1180, x + 40, LG + 40, -1100], tex: { top: T.glass, side: T.metal }, bevelTex: T.trim },
+      { box: [x - 40, LG, -1000, x + 40, LG + 32, -960], tex: { top: T.planks, side: T.wood }, bevelTex: T.trim },
+    ]),
+    { box: [-8, 330, -1096, 8, 480, -1080], tex: T.trim, bevel: false },
+    { box: [-60, 300, -1110, 60, 330, -1066], tex: { top: T.metal, side: T.glass }, bevelTex: T.trim },
+    { box: [-40, 296, -1100, 40, 300, -1076], tex: T.trim, bevel: false, emit: TEAL },
   ],
   hazards: [
     { b: [960, -32, -256, 1216, 8, 384], dmg: 60, mod: 'lava' },
@@ -239,6 +288,8 @@ export default {
     // corners
     [-960, 390, -1100, GOLDW, 460, 0.9], [960, 390, -1100, NAVY, 460, 0.9], [960, 260, 1100, NAVY, 460, 0.9], [-960, 260, 1100, GOLDW, 460, 0.9],
     [-1152, LG + 20, -800, 0x9a7aff, 260, 1.0, { fixture: false }], [1152, LS + 20, 900, 0x9a7aff, 260, 1.0, { fixture: false }],
+    [-1030, 60, 600, 0xff7a20, 360, 1.2, { fixture: false }], [-400, 140, 400, GOLDW, 220, 0.7, { fixture: false }], [400, 140, -400, GOLDW, 220, 0.7, { fixture: false }],
+    [0, 290, -1088, TEAL, 260, 1.0, { fixture: false }],
   ],
   items: [
     { t: 'ra', at: [-176, LG, 176] },

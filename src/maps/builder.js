@@ -103,7 +103,7 @@ export function buildMap(def) {
     lights: def.lights || [],
     items: def.items || [],
     spawns: def.spawns || [],
-    jumppads: (def.jumppads || []).map((j) => ({ ...j, min: [j.at[0] - (j.size || 64) / 2, j.at[1], j.at[2] - (j.size || 64) / 2], max: [j.at[0] + (j.size || 64) / 2, j.at[1] + 12, j.at[2] + (j.size || 64) / 2] })),
+    jumppads: (def.jumppads || []).map(padTarget).map((j) => ({ ...j, min: [j.at[0] - (j.size || 64) / 2, j.at[1], j.at[2] - (j.size || 64) / 2], max: [j.at[0] + (j.size || 64) / 2, j.at[1] + 12, j.at[2] + (j.size || 64) / 2] })),
     teleporters: (def.teleporters || []).map((t) => ({ ...t, min: [t.at[0] - 24, t.at[1], t.at[2] - 24], max: [t.at[0] + 24, t.at[1] + 72, t.at[2] + 24] })),
     // damaging volumes (slime / lava): { b: [x0,y0,z0,x1,y1,z1], dmg per second, mod }
     hazards: (def.hazards || []).map((h) => ({ min: [h.b[0], h.b[1], h.b[2]], max: [h.b[3], h.b[4], h.b[5]], dmg: h.dmg ?? 20, mod: h.mod || 'slime' })),
@@ -112,6 +112,18 @@ export function buildMap(def) {
     skyColor: def.skyColor,
     look: def.look,
   };
+}
+
+// A pad can name where it should put you down (`land`, feet position) and how high above the
+// higher end the arc peaks (`arc`, default 96) instead of the Q3 apex `target`: the apex is
+// worked out so the falling half of the arc ends on `land` (gravity 800, as in pmove).
+function padTarget(j) {
+  if (!j.land) return j;
+  const g = 800, oy = j.at[1] + 24, ly = j.land[1] + 24;
+  const ya = Math.max(oy, ly) + (j.arc ?? 96);
+  const tu = Math.sqrt(2 * (ya - oy) / g), td = Math.sqrt(2 * (ya - ly) / g);
+  const f = tu / (tu + td);
+  return { ...j, target: [j.at[0] + (j.land[0] - j.at[0]) * f, ya, j.at[2] + (j.land[2] - j.at[2]) * f] };
 }
 
 // 45 degree chamfer planes on the vertical edges and (unless d.flat) the top edges of a box.

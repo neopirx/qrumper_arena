@@ -17,13 +17,17 @@ import { Hud } from './hud.js';
 import { gunFor } from './crosshair.js';
 import { Input } from './input.js';
 import { angleVectors, yawTo, angleDiff, DEG } from '../sim/vec.js';
-import { MAPS } from '../maps/index.js';
+import { MAPS, nextMap } from '../maps/index.js';
+import { Podium } from '../render/podium.js';
+import { DynamicLighting } from '../render/dynlight.js';
 import { NetMatch } from './netmatch.js';
 import { BADGES } from '../sim/xp.js';
 
 const SKILL_NAMES = ['', 'Recruit', 'Regular', 'Veteran', 'Elite', 'Nightmare'];
 // warmup: the "welcome" line (~4.5 s), then the 3 · 2 · 1 countdown, then GO
 const WARMUP = 8;
+// end of match: the scoreboard first, then the podium; the next map loads NEXT_IN s after the end
+const PODIUM_AT = 7, NEXT_IN = 30;
 // announcer lines that have a recording (see ANNOUNCER in audio.js)
 const SPOKEN = new Set(['double', 'triple', 'quad', 'monster', 'precision', 'revenge', 'telefrag', 'deathstreak', 'dismembered', 'mutilated']);
 // view kick per shot (degrees of pitch), Q3 cg.kick_angles style: visual only, the aim doesn't move
@@ -31,11 +35,11 @@ const VIEW_KICK = { mg: 0.35, sg: 1.7, gl: 1.0, rl: 1.4, rg: 2.1 };
 
 export class Session {
   // net: { conn, start } for a multiplayer match (start = the server's 'start' message)
-  constructor({ renderer, assets, audio, textures, settings, hudRoot, opts, onPause, onExit, onMatchEnd, net = null }) {
+  constructor({ renderer, assets, audio, textures, settings, hudRoot, opts, onPause, onExit, onMatchEnd, onNext, onQuit, net = null }) {
     this.renderer = renderer; this.assets = assets; this.audio = audio; this.textures = textures;
     this.settings = settings; this.opts = opts;
     this.hudRoot = hudRoot;
-    this.onPause = onPause; this.onExit = onExit; this.onMatchEnd = onMatchEnd;
+    this.onPause = onPause; this.onExit = onExit; this.onMatchEnd = onMatchEnd; this.onNext = onNext; this.onQuit = onQuit;
     this.net = net;
     // camera motion: landing dip, jump nudge, recoil, damage roll (all scaled by settings.camMotion)
     this.cam = { landT: 1, landAmt: 0, jumpT: 1, kickP: 0, kickY: 0, kickV: 0, roll: 0, hurtRoll: 0 };
@@ -77,6 +81,7 @@ export class Session {
     this.sky = buildSky(map);
     this.scene.add(this.sky);
     this.effects = new Effects(this.scene, game.col, this.settings.graphics || {});
+    this.effects.lightGrid = world.lightGrid;
     this.gore = new Gore(this.scene, game.col, this.effects);
     this.gore.enabled = this.settings.gore !== false;
     this.props = buildMapProps(map, this.effects, this.scene, game.col);
@@ -97,6 +102,7 @@ export class Session {
       this.unsub = [
         this.net.conn.on('roster', (m) => this.syncRoster(m.players, true)),
         this.net.conn.on('results', (m) => this.showResults(m.mine, m.profile, m.levelUp)),
+        this.net.conn.on('next', (m) => { this.nextMapKey = m.map; this.nextAt = this.time + m.in - 0.3; }),
       ];
     } else {
       const myColor = this.settings.color ?? PLAYER_COLORS[0];
@@ -160,6 +166,10 @@ export class Session {
     this.effects.gfx = G;
     this.effects.q = { low: 0.35, medium: 0.65, high: 1 }[G.particles] ?? 1;
     if (this.atmosphere.dust) this.atmosphere.dust.visible = G.sky !== false;
+    // Lighting: Dynamic adds real-time sun shadows and per-pixel lamps on top of the lightmaps
+    const want = G.lighting === 'dynamic';
+    if (want && !this.dyn) this.dyn = new DynamicLighting(this.renderer, this.map, this.world, this.scene);
+    else if (!want && this.dyn) { this.dyn.dispose(); this.dyn = null; }
   }
 
   start() {
@@ -208,6 +218,8 @@ export class Session {
     for (const p of this.projViews.values()) this.audio.stop(p.sound);
     this.audio.clearAnnouncer();
     this.gore.dispose();
+    if (this.podium) this.podium.dispose();
+    if (this.dyn) { this.dyn.dispose(); this.dyn = null; }
     this.hudRoot.innerHTML = '';
     this.scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
@@ -533,6 +545,8 @@ export class Session {
           g.winner = w;
           this.hud.center(`<div class="big">${e.reason}</div>${w ? escapeHtml(w.name) + ' wins the match' : ''}`, 5, 'top');
           this.intermissionAt = this.time;
+          this.endAt = this.time;
+          if (!this.net) { this.nextMapKey = nextMap(this.opts.map); this.nextAt = this.time + NEXT_IN; }
           this.say(w === me ? 'win' : 'lose', { cut: true, maxWait: 5 });
           this.zoomToggled = false;
           // offline: the client reports the result to the profile store (online the server does it)
@@ -556,6 +570,17 @@ export class Session {
     const g = this.game, me = this.me, R = this.renderer;
     const w = R.domElement.clientWidth, h = R.domElement.clientHeight;
     const aspect = w / h;
+    if (this.endPhase(dt)) {
+      this.podium.update(dt, aspect);
+      R.render(this.podium.scene, this.podium.camera);
+      if (this.settings.graphics?.bloom) this.glow.apply(0.5);
+      this.audio.pumpAnnouncer();
+      this.hud.update(dt, g, me, this.fps, 0);
+      this.hud.scores(this.input.down.has('Tab') || (this.input.is('scores') && !this.paused), g, me, !!this.net);
+      this.hud.endScreen(this.endInfo());
+      return;
+    }
+    if (this.endAt != null && g.state === 'intermission') this.hud.endScreen(this.endInfo());
     // zoom (right mouse): the railgun zooms hard, everything else a little
     const zoomBind = this.input.is('zoom') && !this.paused;
     if (this.settings.zoomToggle) { if (this.input.was('zoom') && !this.paused) this.zoomToggled = !this.zoomToggled; } else this.zoomToggled = zoomBind;
@@ -661,6 +686,7 @@ export class Session {
     this.camera.getWorldDirection(fwd);
     this.audio.setListener(this.camera.position, fwd, up);
 
+    if (this.dyn) this.dyn.update(this.camera, this.time, dt);
     R.render(this.scene, this.camera);
 
     // view weapon
@@ -679,6 +705,33 @@ export class Session {
     this.hud.update(dt, g, me, this.fps, speed);
     this.hud.setLocked(this.input.locked || this.paused);
     this.hud.scores((this.input.is('scores') && !this.paused) || g.state === 'intermission', g, me, !!this.net);
+  }
+
+  // end of match: scoreboard for PODIUM_AT s, then the podium (true while it is on screen); offline
+  // the next map starts when the countdown runs out (online the server starts it)
+  endPhase(dt) {
+    if (this.endAt == null || this.game.state !== 'intermission') return false;
+    if (!this.net && !this.nextFired && this.nextAt != null && this.time >= this.nextAt) { this.nextFired = true; if (this.onNext) setTimeout(() => this.onNext(this.nextMapKey), 0); }
+    if (this.time - this.endAt < PODIUM_AT) return false;
+    if (!this.podium) {
+      const top = this.game.ranking().slice(0, 3).map((p) => ({ name: p.name, color: p.color, character: p.character || 'capi', frags: p.frags, me: p === this.me }));
+      this.podium = new Podium(this.assets, top);
+      // free the mouse for the buttons without opening the pause menu
+      this.input.enabled = false; this.input.down.clear(); this.input.unlock();
+      this.hud.setLocked(true);
+    }
+    return true;
+  }
+  endInfo() {
+    const left = this.nextAt != null ? Math.max(0, this.nextAt - this.time) : null;
+    const def = this.nextMapKey && MAPS[this.nextMapKey] ? MAPS[this.nextMapKey].def : null;
+    return {
+      podium: !!this.podium && this.time - this.endAt >= PODIUM_AT, left, total: NEXT_IN,
+      next: def ? def.name : null, online: !!this.net, winner: this.game.winner ? this.game.winner.name : null,
+      labels: this.podium ? this.podium.labels() : [],
+      onQuit: () => this.onQuit && this.onQuit(),
+      onNext: !this.net ? () => { if (!this.nextFired) { this.nextFired = true; this.onNext && this.onNext(this.nextMapKey); } } : null,
+    };
   }
 
   landKick(vy) {

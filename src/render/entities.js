@@ -237,10 +237,21 @@ export class PlayerModel {
     this.tauntNext = Math.floor(Math.random() * this.taunts.length);
   }
 
+  // podium: loop one clip for good (victory / defeat), no taunt cycle
+  holdClip(clip, timeScale = 1) {
+    this.mixer.stopAllAction();
+    this.fixed = this.mixer.clipAction(clip);
+    this.fixed.setLoop(THREE.LoopRepeat, Infinity);
+    this.fixed.reset(); this.fixed.setEffectiveWeight(1); this.fixed.setEffectiveTimeScale(timeScale); this.fixed.play();
+    this.taunt = null;
+  }
+
   // menu: idle, every 8-14 s blend into the next taunt and back
-  updateShowcase(dt, yaw, light) {
+  updateShowcase(dt, yaw, light, pos = null) {
     const FADE = 0.35;
-    if (this.taunt) {
+    if (this.fixed) {
+      // held clip: nothing to schedule
+    } else if (this.taunt) {
       if (this.taunt.time >= this.taunt.getClip().duration - FADE - 0.02) {
         this.idle.enabled = true; this.idle.setEffectiveTimeScale(1); this.idle.setEffectiveWeight(1); this.idle.time = 0;
         this.idle.crossFadeFrom(this.taunt, FADE, false);
@@ -253,7 +264,7 @@ export class PlayerModel {
       this.taunt.reset(); this.taunt.setEffectiveTimeScale(1); this.taunt.setEffectiveWeight(1); this.taunt.play();
       this.taunt.crossFadeFrom(this.idle, FADE, false);
     }
-    this.root.position.set(0, 0, 0);
+    if (pos) this.root.position.set(pos[0], pos[1], pos[2]); else this.root.position.set(0, 0, 0);
     this.model.rotation.y = yaw * DEG + Math.PI;
     this.mixer.update(dt);
     this.root.updateMatrixWorld(true);
@@ -779,17 +790,65 @@ export function buildSky(map) {
       planetDir: { value: planet ? new THREE.Vector3(...planet.dir).normalize() : new THREE.Vector3(0, -1, 0) },
       planetSize: { value: planet ? planet.size : 0 }, planetCol: { value: new THREE.Color(...(planet?.color || [1, 1, 1])) },
       time: shared.time, fogColor: shared.fogColor,
+      space: { value: map.look?.space ? 1 : 0 },
+      nebA: { value: new THREE.Color(...(map.look?.nebula?.[0] || [0.3, 0.1, 0.4])) }, nebB: { value: new THREE.Color(...(map.look?.nebula?.[1] || [0.05, 0.2, 0.4])) },
     },
     vertexShader: `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = projectionMatrix * modelViewMatrix * vec4(position,1.0); gl_Position = p.xyww; }`,
     fragmentShader: `
       uniform vec3 top; uniform vec3 horizon; uniform vec3 sunDir; uniform vec3 sunCol; uniform float time; uniform vec3 fogColor;
       uniform vec3 planetDir; uniform float planetSize; uniform vec3 planetCol;
+      uniform float space; uniform vec3 nebA; uniform vec3 nebB;
       varying vec3 vDir;
       float h(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453); }
       float n(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.0-2.0*f); return mix(mix(h(i),h(i+vec2(1,0)),f.x), mix(h(i+vec2(0,1)),h(i+vec2(1,1)),f.x), f.y); }
       float fbm(vec2 p){ float v=0.0, a=0.5; for(int i=0;i<5;i++){ v+=a*n(p); p*=2.03; a*=0.5; } return v; }
+      float h3(vec3 p){ return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+      // open space: a deep gradient, two-tone nebula wisps, a dusty band and three layers of stars
+      vec3 spaceSky(vec3 d) {
+        vec3 col = mix(vec3(0.004, 0.006, 0.016), top, 0.35 + 0.25 * d.y);
+        vec2 uv = vec2(atan(d.z, d.x), asin(clamp(d.y, -1.0, 1.0)));
+        float neb = fbm(uv * vec2(1.6, 2.2) + 3.0);
+        float neb2 = fbm(uv * vec2(3.1, 4.0) - neb * 1.5 + 7.0);
+        float band = exp(-pow((d.y - 0.25 * sin(uv.x * 1.3)) * 3.2, 2.0));
+        col += nebA * pow(neb, 3.0) * 1.1 * band + nebB * pow(neb2, 3.5) * 0.9;
+        col += vec3(0.5, 0.48, 0.55) * pow(fbm(uv * 14.0), 4.0) * band * 0.25;
+        for (int l = 0; l < 3; l++) {
+          float sc = 90.0 + float(l) * 140.0;
+          vec3 cell = floor(d * sc);
+          float r = h3(cell + float(l) * 17.0);
+          if (r > 0.986 - float(l) * 0.004) {
+            vec3 c = (cell + 0.5 + (vec3(h3(cell + 1.0), h3(cell + 2.0), h3(cell + 3.0)) - 0.5) * 0.7) / sc;
+            float dd = length(d - normalize(c)) * sc;
+            float tw = 0.75 + 0.25 * sin(time * (1.0 + r * 4.0) + r * 60.0);
+            vec3 tint = mix(vec3(0.7, 0.8, 1.0), vec3(1.0, 0.85, 0.7), h3(cell + 5.0));
+            col += tint * smoothstep(0.55, 0.0, dd) * (1.6 - float(l) * 0.45) * tw;
+          }
+        }
+        return col;
+      }
       void main(){
         vec3 d = normalize(vDir);
+        if (space > 0.5) {
+          vec3 col = spaceSky(d);
+          if (planetSize > 0.0) {
+            float pd = acos(clamp(dot(d, planetDir), -1.0, 1.0));
+            vec3 pn = normalize(d - planetDir * cos(pd));
+            float sh = clamp(dot(pn, sunDir) * 1.6 + 0.25, 0.0, 1.0);
+            // gas giant: latitude bands warped by turbulence, a lit limb and an atmosphere glow
+            vec3 ax = normalize(cross(planetDir, vec3(0.0, 1.0, 0.0)));
+            float lat = dot(d - planetDir * cos(pd), cross(ax, planetDir)) / max(sin(planetSize), 0.001);
+            float bands = 0.7 + 0.3 * sin(lat * 26.0 + fbm(vec2(lat * 6.0, dot(d, ax) * 5.0)) * 5.0);
+            vec3 surf = planetCol * bands * sh;
+            float disc = smoothstep(planetSize, planetSize * 0.995, pd);
+            col = mix(col, surf, disc);
+            float limb = smoothstep(planetSize * 1.08, planetSize, pd) * (1.0 - disc * 0.6);
+            col += mix(planetCol, vec3(0.6, 0.8, 1.0), 0.5) * limb * 0.5 * clamp(dot(normalize(d - planetDir), sunDir) + 0.6, 0.0, 1.0);
+          }
+          float s = max(dot(d, normalize(sunDir)), 0.0);
+          col += sunCol * (step(0.9995, s) * 2.0 + pow(s, 200.0) * 1.2 + pow(s, 12.0) * 0.12);
+          gl_FragColor = vec4(min(col, vec3(1.0)), 1.0);
+          return;
+        }
         float y = max(d.y, 0.0);
         // painted gradient with visible steps, like a hand-banded skybox
         float g = pow(y, 0.55);

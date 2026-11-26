@@ -11,14 +11,14 @@ import { Game, TICK } from '../src/sim/game.js';
 import { buildMap } from '../src/maps/builder.js';
 import { buildNav } from '../src/sim/nav.js';
 import { makeBot } from '../src/sim/bot.js';
-import { MAPS } from '../src/maps/index.js';
+import { MAPS, nextMap } from '../src/maps/index.js';
 import { BOT_NAMES, PLAYER_COLORS, CHARACTERS, WEAPON_ORDER } from '../src/sim/defs.js';
 import { recordResult, view } from './profiles.js';
 
 const SNAP_EVERY = 3;          // 125 / 3 ≈ 42 snapshots a second
 const WARMUP = 8;              // same as offline: welcome line, then 3 · 2 · 1
 const LOAD_TIMEOUT = 75;       // seconds to wait for slow loaders before starting anyway
-const INTERMISSION = 12;       // seconds on the scoreboard before returning to the lobby
+const INTERMISSION = 30;       // seconds of scoreboard + podium before the next map starts
 const MAX_ROOMS = 50;
 
 const mapCache = new Map();    // map key -> { def, nav } (nav is read-only, so shared by matches)
@@ -163,6 +163,10 @@ class Room {
   // ---- match ----
   start(client) {
     if (client !== this.owner || this.state !== 'lobby') return;
+    this.launch();
+  }
+
+  launch() {
     const { nav } = mapData(this.rules.map);
     const map = buildMap(MAPS[this.rules.map].def);
     const game = new Game(map, { fraglimit: this.rules.fraglimit, timelimit: this.rules.timelimit, warmup: WARMUP, doubleJump: this.rules.doubleJump });
@@ -306,7 +310,19 @@ class Room {
       if (saved) c.level = saved.level;
       c.send({ t: 'results', results, mine: r, profile: saved ? view(saved.profile) : null, levelUp: saved ? saved.levelUp : false });
     }
-    this.endTimer = setTimeout(() => this.backToLobby(), INTERMISSION * 1000);
+    // map rotation: same rules, the next map, after the scoreboard and the podium
+    const next = nextMap(this.rules.map);
+    this.send({ t: 'next', map: next, in: INTERMISSION });
+    this.endTimer = setTimeout(() => this.rotate(next), INTERMISSION * 1000);
+  }
+
+  rotate(next) {
+    this.stop();
+    for (const c of this.clients) { c.player = null; c.ready = false; }
+    if (!this.clients.size) return;
+    this.rules = { ...this.rules, map: next };
+    this.state = 'lobby';
+    this.launch();
   }
 
   backToLobby() {

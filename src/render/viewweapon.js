@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { cloneWeapon, setLight, WEAPON_MODEL_FOR } from './assets.js';
 import { WEAPONS, WEAPON_ORDER } from '../sim/defs.js';
 import { gunFor } from '../client/crosshair.js';
+import { flameTextures } from './effects.js';
 
 // base [x, y, z] of the weapon centre in view space for the right hand, and its on-screen length
 const OFFSETS = {
@@ -197,16 +198,5 @@ function glowTexture() {
   });
 }
 // flame petal: hot at the muzzle (bottom of the texture), tapering into ragged tongues
-function petalTexture() {
-  return _petal ||= canvasTex(64, (g, s) => {
-    g.clearRect(0, 0, s, s);
-    for (let i = 0; i < 5; i++) {
-      const x = s / 2 + (i - 2) * s * 0.09, top = s * (0.05 + Math.random() * 0.3);
-      const gr = g.createLinearGradient(0, s, 0, top);
-      gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = gr;
-      g.beginPath(); g.moveTo(x - s * 0.12, s); g.quadraticCurveTo(x - s * 0.06, s * 0.5, x, top); g.quadraticCurveTo(x + s * 0.06, s * 0.5, x + s * 0.12, s); g.fill();
-    }
-  });
-}
+function petalTexture() { return flameTextures().tongue; }
 const easeOut = (t) => 1 - (1 - t) * (1 - t);

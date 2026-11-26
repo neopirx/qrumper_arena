@@ -45,15 +45,18 @@ export class Assets {
     SHOWCASE_CLIPS.forEach((f, i) => jobs.push(fbx.loadAsync(`/animations/${encodeURIComponent(f)}.fbx`).then((obj) => { show[i] = obj; tick(); })));
     jobs.push(gltf.loadAsync('/animations/UAL2_Standard.glb').then((g) => { for (const c of g.animations) if (!this.clips[c.name]) this.clips[c.name] = c; tick(); }));
     await Promise.all(jobs);
-    const [idle, ...taunts] = show.map((o) => anchorClip(o.animations[0]));
-    this.showcase = { rig: show[0], clips: { idle, taunts } };
+    const clips = show.map((o) => anchorClip(o.animations[0]));
+    const idle = clips[0], taunts = clips.slice(1, 1 + TAUNTS.length), [victory, defeat, defeat2] = clips.slice(1 + TAUNTS.length);
+    // menu showcase: idle + taunts; end-of-match podium: victory for the winner, defeats for 2nd / 3rd
+    this.showcase = { rig: show[0], clips: { idle, taunts, victory, defeats: [defeat, defeat2] } };
     // shared character scale: mannequin is 1.83m -> ~58 game units
     this.character.scale.setScalar(32);
     this.icons = renderWeaponIcons(this);
   }
 }
 
-const SHOWCASE_CLIPS = ['Idle', 'Taunt', 'Taunt Gesture'];
+const TAUNTS = ['taunt', 'taunt02', 'taunt03', 'taunt04'];
+const SHOWCASE_CLIPS = ['Idle', ...TAUNTS, 'victory', 'defeat', 'defeat_02'];
 
 // keep the clip on the spot: hips start over the origin (Taunt is authored half a metre back)
 function anchorClip(clip) {

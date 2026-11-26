@@ -97,6 +97,22 @@ export default {
     { b: [-704, LB, 384, 704, 224, 1024], floor: T.floorConc, wall: T.wallPanel, ceil: T.ceilMetal, trim: { h: 20, tex: T.hazard }, crown: { h: 20, tex: T.trim }, strip: { y: 250, h: 5, color: TEAL } },
     { b: [-640, LB, 320, -512, 128, 384], floor: T.hazard, wall: T.trim, ceil: T.trim },   // stairs up to the west wing
     { b: [512, LB, 320, 640, 224, 384], floor: T.hazard, wall: T.trim, ceil: T.trim },     // ramp up to the east wing
+
+    // ---- SMELTER (SE, -96): crucible, molten channel, casting mezzanine; stairs up to the east wing ----
+    { b: [768, LB, 448, 1216, 320, 1024], floor: T.plates, wall: T.rust, ceil: T.ceilCorr, trim: { h: 20, tex: T.hazard }, crown: { h: 24, tex: T.trim }, strip: { y: 260, h: 5, color: 0xff6a20 } },
+    { b: [704, LB, 576, 768, 96, 704], floor: T.hazard, wall: T.trim, ceil: T.trim },                // door from the south hall
+    { b: [960, LB, 320, 1088, 224, 448], floor: T.floorGrate, wall: T.trim, ceil: T.trim },          // stairwell to the east wing
+    { b: [1120, -136, 448, 1216, LB, 1024], floor: T.rust, wall: T.rust2 },                          // molten channel
+
+    // ---- LOCKER ROOM (SW, 0): the crew's changing room, off the west wing and the south hall ----
+    { b: [-1216, 0, 448, -768, 224, 1024], floor: T.tilesRed, wall: T.wallPanel, ceil: T.ceilMetal, trim: { h: 16, tex: T.trim }, strip: { y: 176, h: 4, color: TEAL } },
+    { b: [-1088, 0, 320, -960, 192, 448], floor: T.hazard, wall: T.trim, ceil: T.trim },             // passage from the west wing
+    { b: [-768, 0, 736, -704, 160, 928], floor: T.hazard, wall: T.trim, ceil: T.trim },              // door to the south hall stairs
+
+    // ---- PUMP ROOM (NE, 256): slime pumps feeding the trench, off the MH platform and the corridor ----
+    { b: [768, 256, -1024, 1216, 448, -704], floor: T.floorGrate, wall: T.corrWall, ceil: T.ceilCorr, trim: { h: 16, tex: T.hazard }, strip: { y: 150, h: 5, color: SLIME } },
+    { b: [704, 256, -960, 768, 400, -832], floor: T.hazard, wall: T.trim, ceil: T.trim },             // door from the MH platform
+    { b: [832, 256, -704, 960, 400, -640], floor: T.hazard, wall: T.trim, ceil: T.trim },             // door to the corridor
   ],
   solids: [
     // ---- atrium ----
@@ -173,9 +189,69 @@ export default {
     { box: [-96, LB, 560, 96, LB + 48, 624], tex: { top: T.trim, side: T.rust2 }, bevelTex: T.hazard },
     { wedge: [-704, LB, 384, -640, 224, 448], keep: '-x-z', tex: T.wallPanel },
     { wedge: [640, LB, 384, 704, 224, 448], keep: '+x-z', tex: T.wallPanel },
+    // south hall dressing: a fallen gantry beam, pallets, a work lamp
+    { box: [-300, LB, 760, 300, LB + 24, 792], tex: { top: T.trim, side: T.rust2 }, bevelTex: T.hazard },
+    { box: [380, LB, 450, 460, LB + 40, 530], tex: { top: T.floorGrate, side: T.rust }, bevelTex: T.trim },
+    { stairs: [-704, LB, 736, -576, 0, 928], up: '-x', tex: T.trim },
+
+    // ===== SMELTER =====
+    { stairs: [960, LB, 320, 1088, LE, 560], up: '-z', tex: T.trim },
+    // the crucible on its cradle: a riveted pot glowing at the lip, a pour spout over the channel
+    { box: [880, LB, 640, 1040, LB + 32, 800], tex: { top: T.plates, side: T.trim }, bevelTex: T.hazard },
+    { box: [896, LB + 32, 656, 1024, LB + 152, 784], tex: { top: T.rust2, side: T.rust }, bevelTex: T.trim },
+    { box: [904, LB + 152, 664, 1016, LB + 156, 776], tex: T.trim, bevel: false, emit: 0xff8a20 },
+    { box: [1024, LB + 120, 704, 1124, LB + 136, 736], tex: { top: T.rust2, side: T.trim } },
+    { box: [1100, LB + 60, 708, 1120, LB + 120, 732], tex: T.trim, bevel: false, emit: 0xff6a10 },
+    // molten channel along the east wall
+    { box: [1120, -136, 448, 1216, -128, 1024], tex: T.rust, emit: 0xff5a10, bevel: false },
+    // casting mezzanine along the south wall, reached by the stairs from the channel side
+    deck([768, LE - 16, 928, 1120, LE, 1024]),
+    { stairs: [768, LB, 736, 864, LE, 928], up: '+z', tex: T.trim },
+    { box: [1116, LE, 928, 1120, LE + 30, 1024], tex: T.trim, bevel: false },
+    // ingot stacks, moulds, the conveyor to the south hall door
+    { box: [800, LB, 480, 880, LB + 48, 560], tex: { top: T.plates, side: T.rust2 }, bevelTex: T.hazard },
+    { box: [810, LB + 48, 490, 870, LB + 80, 550], tex: { top: T.plates, side: T.rust2 } },
+    { box: [776, LB, 600, 960, LB + 28, 640], tex: { top: T.floorGrate, side: T.trim }, bevelTex: T.hazard },
+    { box: [1056, LB, 860, 1112, LB + 64, 916], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
+    // hanging ladle chain from the crane rail
+    { box: [768, 280, 712, 1216, 300, 728], tex: { top: T.trim, side: T.trim, bottom: T.rust2 } },
+    { box: [956, 180, 716, 964, 280, 724], tex: T.trim, bevel: false },
+    { box: [930, 150, 690, 990, 180, 750], tex: { top: T.rust2, side: T.rust } },
+
+    // ===== LOCKER ROOM =====
+    ...[480, 560, 640, 720, 800, 880].map((z) => ({ box: [-1216, 0, z, -1180, 144, z + 64], tex: { top: T.trim, side: T.plates }, bevelTex: T.trim })),
+    ...[-1120, -1040, -960, -880].map((x) => ({ box: [x, 0, 988, x + 64, 144, 1024], tex: { top: T.trim, side: T.plates }, bevelTex: T.trim })),
+    { box: [-1100, 0, 640, -900, 20, 688], tex: { top: T.floorGrate, side: T.trim } },
+    { box: [-1100, 0, 800, -900, 20, 848], tex: { top: T.floorGrate, side: T.trim } },
+    { box: [-860, 0, 480, -800, 96, 560], tex: { top: T.trim, side: T.rust2 }, bevelTex: T.hazard },
+    { box: [-1180, 0, 900, -1120, 8, 960], tex: T.floorGrate, bevel: false },
+
+    // ===== PUMP ROOM =====
+    ...[[832, -960], [960, -960], [1088, -960]].flatMap(([x, z]) => [
+      { box: [x, 256, z, x + 96, 400, z + 96], tex: { top: T.trim, side: T.rust2 }, bevelTex: T.trim },
+      { box: [x - 4, 330, z - 4, x + 100, 338, z + 100], tex: T.trim, bevel: false, emit: SLIME },
+      { box: [x + 40, 400, z + 40, x + 56, 448, z + 56], tex: T.trim, bevel: false },
+    ]),
+    { box: [768, 256, -760, 1216, 284, -736], tex: { top: T.trim, side: T.rust2 } },
+    { box: [1120, 256, -880, 1200, 320, -800], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
+
+    // ===== dressing across the old rooms =====
+    // west wing: pipe runs along the north wall, a slime pump on the trench edge
+    // (they start past the stair head at x -1088 so the stairs up to the NW room stay open)
+    { box: [-1072, 260, -320, -448, 276, -304], tex: T.trim, bevel: false }, { box: [-1072, 240, -320, -448, 252, -308], tex: T.rust2, bevel: false },
+    { box: [-990, 0, 280, -940, 70, 320], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
+    // north hall: a tool cart and banner frames between the columns
+    { box: [-300, LN, -1000, -220, LN + 40, -960], tex: { top: T.trim, side: T.rust2 }, bevelTex: T.hazard },
+    { box: [250, 360, -1024, 266, 470, -1018], tex: T.trim, bevel: false, emit: SODIUM }, { box: [-266, 360, -1024, -250, 470, -1018], tex: T.trim, bevel: false, emit: SODIUM },
+    // east wing: a forklift-sized crate pile and a cable drum
+    { box: [880, LE, -300, 980, LE + 56, -220], tex: { top: T.trim, side: T.rust }, bevelTex: T.hazard },
+    { box: [900, LE + 56, -290, 960, LE + 96, -240], tex: { top: T.trim, side: T.rust2 } },
+    // atrium: cable bundles hanging off the gantry
+    { box: [-200, 400, -6, -194, 448, 6], tex: T.trim, bevel: false }, { box: [194, 380, -6, 200, 448, 6], tex: T.trim, bevel: false },
   ],
   hazards: [
     { b: [-960, -96, -320, -736, -64, 224], dmg: 20, mod: 'slime' },
+    { b: [1120, -136, 448, 1216, -110, 1024], dmg: 60, mod: 'lava' },
   ],
   jumppads: [
     { at: [-160, 0, 248], target: [-160, LN + 40, -300] },   // atrium south -> north balcony, over the basin
@@ -203,6 +279,12 @@ export default {
     // south hall
     [-384, 200, 700, TEAL, 520, 1.0], [384, 200, 700, TEAL, 520, 1.0], [0, 200, 1000, WARM, 420, 1.0], [0, -40, 240, TEAL, 200, 0.8, { fixture: false }],
     [-400, -60, 800, 0x6a5cff, 260, 1.0, { fixture: false }],
+    // smelter: the crucible and the channel glow, work lights
+    [960, 120, 720, 0xff7a20, 520, 1.5, { fixture: false }], [1168, -60, 736, 0xff5a10, 480, 1.4, { fixture: false }], [990, 280, 520, WARM, 420, 0.9], [900, 280, 980, SODIUM, 360, 0.8],
+    // locker room: cold tubes, one dying
+    [-992, 200, 600, TEAL, 420, 0.9], [-992, 200, 880, 0xd8f0ff, 380, 0.8],
+    // pump room
+    [992, 420, -880, SLIME, 460, 1.0], [992, 300, -760, WARM, 300, 0.7],
   ],
   items: [
     { t: 'rl', at: [0, LB + 12, 0] },
@@ -221,11 +303,15 @@ export default {
     { t: 'am_rl', at: [-160, LB, -120] }, { t: 'am_rl', at: [600, 256, -960] }, { t: 'am_rl', at: [-1152, LN, -500] },
     { t: 'am_rg', at: [384, LE, 960] }, { t: 'am_gl', at: [-1008, 0, -256] }, { t: 'am_sg', at: [1152, LE, -256] },
     { t: 'am_mg', at: [-416, LB, 440] }, { t: 'am_sg', at: [416, LB, 440] },
+    { t: 'h50', at: [940, LE, 976] }, { t: 'am_rl', at: [820, LB, 960] }, { t: 'shard', at: [1000, LB, 500] }, { t: 'shard', at: [1000, LB, 560] },
+    { t: 'h25', at: [-1000, 0, 560] }, { t: 'h25', at: [-1000, 0, 900] }, { t: 'am_sg', at: [-820, 0, 980] }, { t: 'am_gl', at: [-1150, 0, 760] },
+    { t: 'am_rg', at: [1150, 256, -760] }, { t: 'h5', at: [880, 256, -790] }, { t: 'h5', at: [1000, 256, -790] },
   ],
   spawns: [
     { at: [-1024, 0, 192], yaw: 0 }, { at: [-640, 0, -96], yaw: -90 }, { at: [960, LE, -128], yaw: 90 },
-    { at: [640, LE, 256], yaw: 90 }, { at: [-384, LN, -896], yaw: 180 }, { at: [384, LN, -900], yaw: 180 },
+    { at: [640, LE, 256], yaw: 90 }, { at: [-384, LN, -896], yaw: 180 }, { at: [256, LN, -900], yaw: 180 },
     { at: [-960, LN, -560], yaw: -90 }, { at: [-320, LB, 640], yaw: 0 }, { at: [320, LB, 520], yaw: 0 },
     { at: [-288, 0, 0], yaw: 90 }, { at: [288, 0, -200], yaw: -90 }, { at: [0, LE, 960], yaw: 180 },
+    { at: [1150, LB, 600], yaw: 90 }, { at: [-1100, 0, 520], yaw: 180 }, { at: [1100, 256, -800], yaw: 90 },
   ],
 };
