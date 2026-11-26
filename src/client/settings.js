@@ -46,6 +46,8 @@ export const DEFAULTS = {
   // match
   bots: 5,
   doubleJump: false,     // CPM double jump in practice matches
+  mode: 'ffa',           // practice mode: ffa | duel (one bot)
+  instagib: false,       // railgun only, one hit kills, no pickups
   roomName: '',
   skill: 3,
   map: 'bastion',

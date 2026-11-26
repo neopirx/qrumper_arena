@@ -36,18 +36,22 @@ function mapData(key) {
 }
 
 const r1 = (v) => Math.round(v * 10) / 10;
-const DEFAULT_RULES = { map: 'bastion', fraglimit: 20, timelimit: 10, bots: 2, skill: 3, doubleJump: false, maxPlayers: 8 };
+const DEFAULT_RULES = { map: 'bastion', mode: 'ffa', instagib: false, fraglimit: 20, timelimit: 10, bots: 2, skill: 3, doubleJump: false, maxPlayers: 8 };
 
 export function cleanRules(r = {}, base = DEFAULT_RULES) {
   const n = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.max(lo, Math.min(hi, Math.round(+v))) : d);
+  const mode = r.mode === 'duel' || r.mode === 'ffa' ? r.mode : base.mode || 'ffa';
   return {
     map: MAPS[r.map] ? r.map : base.map,
+    mode,
+    instagib: r.instagib != null ? !!r.instagib : !!base.instagib,
     fraglimit: n(r.fraglimit, 1, 100, base.fraglimit),
     timelimit: n(r.timelimit, 0, 60, base.timelimit),
     bots: n(r.bots, 0, 11, base.bots),
     skill: n(r.skill, 1, 5, base.skill),
     doubleJump: r.doubleJump != null ? !!r.doubleJump : base.doubleJump,
-    maxPlayers: n(r.maxPlayers, 2, 12, base.maxPlayers),
+    // a duel is two players; an empty seat is taken by a bot
+    maxPlayers: mode === 'duel' ? 2 : base.mode === 'duel' && r.mode === 'ffa' ? DEFAULT_RULES.maxPlayers : n(r.maxPlayers, 2, 12, base.maxPlayers),
   };
 }
 
@@ -108,7 +112,7 @@ class Room {
   }
 
   info() {
-    return { id: this.id, name: this.name, players: this.clients.size, max: this.rules.maxPlayers, state: this.state, map: this.rules.map, owner: this.owner ? this.owner.name : '' };
+    return { id: this.id, name: this.name, players: this.clients.size, max: this.rules.maxPlayers, state: this.state, map: this.rules.map, mode: this.rules.mode, instagib: this.rules.instagib, owner: this.owner ? this.owner.name : '' };
   }
 
   send(obj) { const s = JSON.stringify(obj); for (const c of this.clients) c.sendRaw(s); }
@@ -129,7 +133,12 @@ class Room {
     this.say(null, `${client.name} joined`);
     this.pushState();
     // a match is running: drop the newcomer straight in
-    if (this.state === 'loading' || this.state === 'playing') this.addToGame(client);
+    if (this.state === 'loading' || this.state === 'playing') {
+      // duel: the newcomer takes the bot's seat
+      const bot = this.rules.mode === 'duel' && this.game.players.find((p) => p.bot);
+      if (bot) this.game.removePlayer(bot);
+      this.addToGame(client);
+    }
   }
 
   leave(client) {
@@ -155,6 +164,7 @@ class Room {
 
   setRules(client, rules) {
     if (client !== this.owner || this.state !== 'lobby') return;
+    if (rules && rules.mode === 'duel' && this.rules.mode !== 'duel' && this.clients.size > 2) return client.send({ t: 'error', msg: 'A duel is for two players: too many in the room' });
     this.rules = cleanRules(rules, this.rules);
     this.pushState();
     this.lobby.broadcastList();
@@ -169,7 +179,7 @@ class Room {
   launch() {
     const { nav } = mapData(this.rules.map);
     const map = buildMap(MAPS[this.rules.map].def);
-    const game = new Game(map, { fraglimit: this.rules.fraglimit, timelimit: this.rules.timelimit, warmup: WARMUP, doubleJump: this.rules.doubleJump });
+    const game = new Game(map, { fraglimit: this.rules.fraglimit, timelimit: this.rules.timelimit, warmup: WARMUP, doubleJump: this.rules.doubleJump, mode: this.rules.mode, instagib: this.rules.instagib });
     game.nav = nav;
     this.game = game;
     this.state = 'loading';
@@ -179,7 +189,7 @@ class Room {
     const free = PLAYER_COLORS.filter((c) => !used.has(c));
     const names = [...BOT_NAMES].sort(() => Math.random() - 0.5);
     const humans = this.clients.size;
-    const nb = Math.min(this.rules.bots, 12 - humans);
+    const nb = this.rules.mode === 'duel' ? Math.max(0, 2 - humans) : Math.min(this.rules.bots, 12 - humans);
     for (let i = 0; i < nb; i++) {
       const b = game.addPlayer({ name: names[i % names.length], bot: makeBot(this.rules.skill), color: free[i % free.length] ?? PLAYER_COLORS[i % PLAYER_COLORS.length] });
       b.character = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)];

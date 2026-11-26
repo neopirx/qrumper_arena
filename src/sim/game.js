@@ -16,6 +16,9 @@ const MULTIKILL_WINDOW = 3;      // seconds between frags that still chain a mul
 const MULTI_AWARDS = [null, null, 'double', 'triple', 'quad', 'monster'];
 const LAG_COMP_MAX = 0.3;        // seconds a remote player's hitscan may be rewound (unlagged)
 const HITSCAN = new Set(['mg', 'sg', 'rg']);
+export const INF_AMMO = 999;     // instagib: the railgun never runs dry (weaponStep doesn't spend it)
+export const MODES = { ffa: 'Free For All', duel: 'Duel' };
+export function modeName(mode, instagib) { return (instagib ? 'Instagib ' : '') + (MODES[mode] || MODES.ffa); }
 
 let nextId = 1;
 
@@ -33,8 +36,10 @@ export class Game {
     this.state = 'warmup';    // warmup -> playing -> intermission
     this.warmup = opts.warmup ?? 3;
     this.doubleJump = !!opts.doubleJump;   // CPM double jump (match rule)
+    this.mode = MODES[opts.mode] ? opts.mode : 'ffa';   // ffa | duel (1v1)
+    this.instagib = !!opts.instagib;       // railgun only, one hit kills, no pickups on the map
     this.posHist = [];        // [{ t, pos: Map(id -> origin) }] for lag compensation
-    this.items = map.items.map((it, i) => {
+    this.items = this.instagib ? [] : map.items.map((it, i) => {
       const def = ITEMS[it.t];
       return { id: i, type: it.t, def, pos: [it.at[0], it.at[1], it.at[2]], active: true, respawnAt: 0, dropped: false };
     });
@@ -99,7 +104,8 @@ export class Game {
       for (const o of this.players) if (o !== p && o.alive) d = Math.min(d, Math.hypot(o.ps.origin[0] - s.at[0], o.ps.origin[1] - s.at[1], o.ps.origin[2] - s.at[2]));
       return { s, d };
     }).sort((a, b) => b.d - a.d);
-    const half = Math.max(1, Math.ceil(scored.length / 2));
+    // duel: one of the furthest quarter, so a respawn is never in the opponent's face
+    const half = Math.max(1, Math.ceil(scored.length / (this.mode === 'duel' ? 4 : 2)));
     return scored[Math.floor(this.rng() * half)].s;
   }
 
@@ -137,8 +143,15 @@ export class Game {
     p.cmd.yaw = s.yaw; p.cmd.pitch = 0;
     p.alive = true;
     p.health = 125; p.armor = 0;
-    p.weapons = { mg: true }; p.ammo = { mg: 100, sg: 0, gl: 0, rl: 0, rg: 0 };
-    p.weapon = 'mg'; p.lastWeapon = 'mg'; p.weaponTime = 250; p.switchTo = null;
+    if (this.instagib) {
+      p.health = 100;
+      p.weapons = { rg: true }; p.ammo = { mg: 0, sg: 0, gl: 0, rl: 0, rg: INF_AMMO };
+      p.weapon = 'rg'; p.lastWeapon = 'rg';
+    } else {
+      p.weapons = { mg: true }; p.ammo = { mg: 100, sg: 0, gl: 0, rl: 0, rg: 0 };
+      p.weapon = 'mg'; p.lastWeapon = 'mg';
+    }
+    p.weaponTime = 250; p.switchTo = null;
     p.decayTimer = 0;
     p.spawnTime = this.time;
     p.history.length = 0;
@@ -214,7 +227,7 @@ export class Game {
     pmove(p.ps, cmd, dt, this.col);
     // pmove events
     for (const e of p.ps.events) {
-      if (e.type === 'fall') { this.damage(p, null, [0, 1, 0], p.ps.origin, e.damage, 'falling', false); this.emit({ type: 'fall', player: p.id, damage: e.damage }); }
+      if (e.type === 'fall') { if (this.instagib) continue; this.damage(p, null, [0, 1, 0], p.ps.origin, e.damage, 'falling', false); this.emit({ type: 'fall', player: p.id, damage: e.damage }); }
       else this.emit({ ...e, player: p.id });
     }
     p.ps.events.length = 0;
@@ -528,6 +541,8 @@ export class Game {
   damage(targ, attacker, dir, point, dmg, mod, knock) {
     if (!targ.alive) return;
     if (this.state === 'intermission') return;
+    // instagib: a rail hit on someone else always kills (and gibs)
+    if (this.instagib && mod === 'rg' && attacker !== targ) dmg = 1000;
     let damage = Math.floor(dmg);
     if (damage < 1) damage = 1;
     let knockback = damage;
@@ -614,7 +629,7 @@ export class Game {
     }
     targ.nemesis = killer && killer !== targ ? killer.id : null;
     // drop the current weapon (Q3 TossClientItems)
-    if (targ.weapon !== 'mg' && targ.ammo[targ.weapon] > 0 && mod !== 'void') {
+    if (!this.instagib && targ.weapon !== 'mg' && targ.ammo[targ.weapon] > 0 && mod !== 'void') {
       const it = { id: nextId++, type: targ.weapon, def: ITEMS[targ.weapon], pos: [targ.ps.origin[0], targ.ps.origin[1] - 23, targ.ps.origin[2]], active: true, dropped: true, ammo: Math.max(1, targ.ammo[targ.weapon]), expire: this.time + 30 };
       // settle the dropped item onto the floor
       const tr = this.col.trace([it.pos[0], it.pos[1] + 20, it.pos[2]], [it.pos[0], it.pos[1] - 512, it.pos[2]], [-8, 0, -8], [8, 8, 8], MASK_PLAYER);
@@ -693,7 +708,7 @@ export function weaponStep(p, cmd, dt, playing) {
     return { switched, result: 'noammo' };
   }
   p.firing = true;
-  p.ammo[p.weapon]--;
+  if (p.ammo[p.weapon] < INF_AMMO) p.ammo[p.weapon]--;
   p.weaponTime += WEAPONS[p.weapon].rate;
   return { switched, result: 'fire' };
 }

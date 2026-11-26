@@ -13,6 +13,7 @@ import { MAPS } from './maps/index.js';
 import { ProfileStore } from './client/profile.js';
 import { Connection } from './client/net.js';
 import { BADGES, levelInfo } from './sim/xp.js';
+import { modeName } from './sim/game.js';
 
 const $ = (id) => document.getElementById(id);
 const settings = loadSettings();
@@ -133,13 +134,17 @@ for (const id of Object.keys(fmt)) {
 }
 for (const id of Object.keys(outputs)) outputs[id]();
 applyMenuScale();
-const CHECKS = ['invertMouse', 'speedometer', 'walljumpOnJump', 'autoSwitch', 'gunVisible', 'bob', 'viewBob', 'speedFov', 'hitSounds', 'showFps', 'weaponBarAlways', 'gore', 'announcer', 'zoomToggle', 'doubleJump'];
+const CHECKS = ['invertMouse', 'speedometer', 'walljumpOnJump', 'autoSwitch', 'gunVisible', 'bob', 'viewBob', 'speedFov', 'hitSounds', 'showFps', 'weaponBarAlways', 'gore', 'announcer', 'zoomToggle', 'doubleJump', 'instagib'];
 const syncChecks = () => { for (const id of CHECKS) $(id).checked = !!target(id)[id]; };
 for (const id of CHECKS) {
   const el = $(id);
   el.addEventListener('change', () => { target(id)[id] = el.checked; changed(); });
 }
 syncChecks();
+// practice mode: a duel is you against one bot, so the bot count slider goes away
+const syncMode = () => { $('mode').value = settings.mode || 'ffa'; $('bots-row').classList.toggle('hidden', settings.mode === 'duel'); };
+$('mode').addEventListener('change', () => { settings.mode = $('mode').value; syncMode(); changed(); });
+syncMode();
 // crosshair picker: one button per style, drawn with the real crosshair
 const xhGrid = $('xh-grid');
 for (const [key, label] of CROSSHAIRS) {
@@ -437,7 +442,7 @@ async function startMatch(net = null, mapOverride = null) {
     const s = new Session({
       renderer, assets, audio, textures, settings, net,
       hudRoot: $('hud'),
-      opts: { map: mapKey, bots: r.bots, skill: r.skill, fraglimit: r.fraglimit, timelimit: r.timelimit, doubleJump: !!r.doubleJump, level: profile.level.level },
+      opts: { map: mapKey, mode: r.mode || 'ffa', instagib: !!r.instagib, bots: !net && r.mode === 'duel' ? 1 : r.bots, skill: r.skill, fraglimit: r.fraglimit, timelimit: r.timelimit, doubleJump: !!r.doubleJump, level: profile.level.level },
       onPause: () => { show('p-pause'); $('menu').classList.remove('hidden'); },
       onMatchEnd: (mine) => profile.reportMatch(mine),
       // map rotation: the next map with the same rules (offline; online the server starts it)
@@ -497,7 +502,7 @@ function renderRooms() {
   const el = $('rooms');
   if (!mp.rooms.length) { el.innerHTML = `<div class="empty">${mp.conn && mp.conn.open ? 'No rooms yet. Create one and invite your friends.' : '—'}</div>`; return; }
   el.innerHTML = mp.rooms.map((r) => `<div class="room"><div class="thumb" style="background-image:url('/thumbs/${r.map}.jpg')"></div>
-    <div><b>${esc(r.name)}</b><small>${esc(MAPS[r.map]?.def.name || r.map)} · host ${esc(r.owner)}</small></div>
+    <div><b>${esc(r.name)}</b><small>${esc(MAPS[r.map]?.def.name || r.map)} · ${modeName(r.mode, r.instagib)} · host ${esc(r.owner)}</small></div>
     <div><span class="st ${r.state}">${r.state === 'lobby' ? 'in lobby' : 'in match'}</span> <span class="cnt">${r.players}/${r.max}</span></div>
     <button class="btn small primary" data-join="${esc(r.id)}" ${r.players >= r.max ? 'disabled' : ''}>Join</button></div>`).join('');
 }
@@ -514,6 +519,8 @@ for (const k of Object.keys(LR)) {
   el.addEventListener('change', () => sendRules({ [k]: +el.value }));
 }
 $('lr-doubleJump').addEventListener('change', () => sendRules({ doubleJump: $('lr-doubleJump').checked }));
+$('lr-instagib').addEventListener('change', () => sendRules({ instagib: $('lr-instagib').checked }));
+$('lr-mode').addEventListener('change', () => sendRules({ mode: $('lr-mode').value }));
 for (const [key, m] of Object.entries(MAPS)) {
   const card = document.createElement('button');
   card.className = 'map-card';
@@ -541,6 +548,11 @@ function renderLobby() {
     <span><b>${esc(p.name)}</b><br><small>${esc(CHARACTER_INFO[p.character]?.name || '')}${p.inGame ? ' · in match' : ''}</small></span>${p.cid === r.owner ? '<span class="own">Host</span>' : ''}</li>`).join('');
   for (const k of Object.keys(LR)) { const el = $('lr-' + k); el.value = r.rules[k]; el.disabled = !own || r.state !== 'lobby'; $('lr-' + k + '-v').textContent = LR[k](r.rules[k]); }
   $('lr-doubleJump').checked = !!r.rules.doubleJump; $('lr-doubleJump').disabled = !own || r.state !== 'lobby';
+  $('lr-instagib').checked = !!r.rules.instagib; $('lr-instagib').disabled = !own || r.state !== 'lobby';
+  $('lr-mode').value = r.rules.mode || 'ffa'; $('lr-mode').disabled = !own || r.state !== 'lobby';
+  // a duel is two players: the server fixes the player cap and fills an empty seat with one bot
+  const duel = r.rules.mode === 'duel';
+  $('lr-maxPlayers').disabled ||= duel; $('lr-bots').disabled ||= duel;
   for (const c of $('lobby-maps').children) { c.classList.toggle('sel', c.dataset.map === r.rules.map); c.disabled = !own || r.state !== 'lobby'; }
   $('lobby-rules').classList.toggle('locked', !own);
   $('lobby-note').textContent = own ? 'You are the host: set the rules, then start the match for everyone in the room.' : 'Only the host can change the rules and start the match.';

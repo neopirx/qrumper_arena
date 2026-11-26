@@ -32,7 +32,7 @@
             <h1 class="home-title">Ready<br />to <em>frag?</em></h1>
             <p class="home-sub">Strafe-jump, rocket-jump and rail your way to the top of the board. CPMA movement, five weapons, no mercy.</p>
             <div class="modes">
-              <button class="mode primary" data-go="p-play"><span class="mi">&#9654;</span><span class="mt"><b>Practice</b><span>Free for all against bots</span></span></button>
+              <button class="mode primary" data-go="p-play"><span class="mi">&#9654;</span><span class="mt"><b>Practice</b><span>Free for all or duel against bots</span></span></button>
               <button class="mode" data-go="p-mp"><span class="mi">&#9673;</span><span class="mt"><b>Multiplayer</b><span>Create a room or join friends</span></span></button>
             </div>
             <div class="stats" id="home-stats"></div>
@@ -42,12 +42,14 @@
         </div>
 
         <div class="panel hidden" id="p-play">
-          <h2>Practice · Free For All</h2>
+          <h2>Practice</h2>
           <div class="maps" id="maps"></div>
-          <div class="row"><label>Bots</label><input type="range" id="bots" min="1" max="11" /><output id="bots-v"></output></div>
+          <div class="row"><label>Mode</label><select id="mode"><option value="ffa">Free For All</option><option value="duel">Duel · 1 vs 1</option></select><span></span></div>
+          <div class="row" id="bots-row"><label>Bots</label><input type="range" id="bots" min="1" max="11" /><output id="bots-v"></output></div>
           <div class="row"><label>Bot skill</label><input type="range" id="skill" min="1" max="5" /><output id="skill-v"></output></div>
           <div class="row"><label>Fraglimit</label><input type="range" id="fraglimit" min="5" max="50" step="5" /><output id="fraglimit-v"></output></div>
           <div class="row"><label>Timelimit</label><input type="range" id="timelimit" min="0" max="30" step="5" /><output id="timelimit-v"></output></div>
+          <div class="row check"><label><input type="checkbox" id="instagib" /> Instagib · railgun only, one hit kills</label><span></span></div>
           <div class="row check"><label><input type="checkbox" id="doubleJump" /> CPM double jump</label><span></span></div>
           <div class="actions"><button class="btn" data-go="p-main">Back</button><button class="btn primary" id="start">Fight</button></div>
         </div>
@@ -71,11 +73,13 @@
             <div class="lobby-col rules" id="lobby-rules">
               <h3>Match rules</h3>
               <div class="maps compact" id="lobby-maps"></div>
+              <div class="row"><label>Mode</label><select id="lr-mode"><option value="ffa">Free For All</option><option value="duel">Duel · 1 vs 1</option></select><span></span></div>
               <div class="row"><label>Fraglimit</label><input type="range" id="lr-fraglimit" min="5" max="50" step="5" /><output id="lr-fraglimit-v"></output></div>
               <div class="row"><label>Timelimit</label><input type="range" id="lr-timelimit" min="0" max="30" step="5" /><output id="lr-timelimit-v"></output></div>
               <div class="row"><label>Bots</label><input type="range" id="lr-bots" min="0" max="10" /><output id="lr-bots-v"></output></div>
               <div class="row"><label>Bot skill</label><input type="range" id="lr-skill" min="1" max="5" /><output id="lr-skill-v"></output></div>
               <div class="row"><label>Max players</label><input type="range" id="lr-maxPlayers" min="2" max="12" /><output id="lr-maxPlayers-v"></output></div>
+              <div class="row check"><label><input type="checkbox" id="lr-instagib" /> Instagib · railgun only, one hit kills</label><span></span></div>
               <div class="row check"><label><input type="checkbox" id="lr-doubleJump" /> CPM double jump</label><span></span></div>
               <p class="note" id="lobby-note"></p>
             </div>

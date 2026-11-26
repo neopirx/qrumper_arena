@@ -1,6 +1,6 @@
 // A running match: owns the simulation, the scene and per-frame client logic.
 import * as THREE from 'three';
-import { Game, TICK } from '../sim/game.js';
+import { Game, TICK, modeName } from '../sim/game.js';
 import { buildMap } from '../maps/builder.js';
 import { buildNav } from '../sim/nav.js';
 import { makeBot } from '../sim/bot.js';
@@ -79,7 +79,7 @@ export class Session {
     progress(0.02, 'Building map');
     await frame();
     const map = buildMap(def);
-    const game = new Game(map, { fraglimit: this.opts.fraglimit, timelimit: this.opts.timelimit, warmup: WARMUP, doubleJump: this.opts.doubleJump });
+    const game = new Game(map, { fraglimit: this.opts.fraglimit, timelimit: this.opts.timelimit, warmup: WARMUP, doubleJump: this.opts.doubleJump, mode: this.opts.mode, instagib: this.opts.instagib });
     this.game = game; this.map = map;
     if (!this.net) {
       progress(0.06, 'Generating bot navigation');
@@ -194,8 +194,8 @@ export class Session {
     if (this.net) {
       this.net.conn.send({ t: 'ready' });
       const humans = this.game.players.filter((p) => !p.bot).length;
-      this.hud.center(`<div class="big">${this.map.name}</div>Free For All · ${humans} player${humans === 1 ? '' : 's'}`, 3);
-    } else this.hud.center(`<div class="big">${this.map.name}</div>Free For All · ${this.opts.bots} bot${this.opts.bots === 1 ? '' : 's'} (${SKILL_NAMES[this.opts.skill]})`, 3);
+      this.hud.center(`<div class="big">${this.map.name}</div>${modeName(this.game.mode, this.game.instagib)} · ${humans} player${humans === 1 ? '' : 's'}`, 3);
+    } else this.hud.center(`<div class="big">${this.map.name}</div>${modeName(this.game.mode, this.game.instagib)} · ${this.opts.bots} bot${this.opts.bots === 1 ? '' : 's'} (${SKILL_NAMES[this.opts.skill]})`, 3);
     this.last = performance.now();
     const loop = () => {
       if (!this.running) return;

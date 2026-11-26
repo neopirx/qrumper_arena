@@ -3,6 +3,7 @@
 // on switch, pickups bottom left, obituaries top left. Numbers use Q3's colour code:
 // gold = normal, red = low, white = above 100, grey = empty.
 import { WEAPONS, WEAPON_ORDER } from '../sim/defs.js';
+import { INF_AMMO, modeName } from '../sim/game.js';
 import { xhairFor, applyCrosshair } from './crosshair.js';
 import { BADGES, levelInfo } from '../sim/xp.js';
 // badges: seconds between two badges of the same frag, and how long a group stays up
@@ -248,7 +249,7 @@ export class Hud {
     this.set('ar', 'text', ar);
     this.set('arbox', 'class', 'hud-stat ' + (ar <= 0 ? 'zero' : ar > 100 ? 'over red' : 'yellow'));
     const wid = me.weapon, ammo = me.ammo[wid] ?? 0;
-    this.set('am', 'text', ammo);
+    this.set('am', 'text', ammo >= INF_AMMO ? '∞' : ammo);
     this.set('ambox', 'class', 'hud-stat ' + (ammo <= 0 ? 'low empty' : ammo <= LOW_AMMO[wid] ? 'low' : ''));
     this.set('amicon', 'html', this.icon(wid));
     // low ammo warning under the crosshair
@@ -260,7 +261,7 @@ export class Hud {
     for (const id of WEAPON_ORDER) {
       if (!me.weapons[id]) continue;
       const cls = (id === (me.switchTo || wid) ? 'cur ' : '') + (me.ammo[id] <= 0 ? 'empty' : '');
-      wl += `<div class="w ${cls}" style="--wc:${WCOL(id)}"><i>${WEAPONS[id].slot}</i>${this.icon(id)}<span>${me.ammo[id]}</span></div>`;
+      wl += `<div class="w ${cls}" style="--wc:${WCOL(id)}"><i>${WEAPONS[id].slot}</i>${this.icon(id)}<span>${me.ammo[id] >= INF_AMMO ? '∞' : me.ammo[id]}</span></div>`;
     }
     this.set('weapons', 'html', wl);
     this.set('weapons', 'class', 'hud-wbar' + ((this.wbarT > 0 || this.settings.weaponBarAlways) && me.alive ? ' show' : ''));
@@ -337,7 +338,7 @@ export class Hud {
     const over = g.state === 'intermission';
     const title = over
       ? `<h2>${g.winner ? esc(g.winner.name) + ' wins!' : 'Match over'}</h2><p class="hint">${online ? 'The next map starts automatically · hold <b>Tab</b> for the scores' : '<b>Enter</b> for the next match now · hold <b>Tab</b> for the scores'}</p>`
-      : `<h2>${esc(g.map.name)} — Free For All</h2><p class="hint">Fraglimit ${g.fraglimit}${g.timelimit ? ' · Timelimit ' + g.timelimit / 60 + ' min' : ''}</p>`;
+      : `<h2>${esc(g.map.name)} — ${modeName(g.mode, g.instagib)}</h2><p class="hint">Fraglimit ${g.fraglimit}${g.timelimit ? ' · Timelimit ' + g.timelimit / 60 + ' min' : ''}</p>`;
     el.innerHTML = `${title}<table><thead><tr><th>#</th><th>Player</th><th>Score</th><th>Kills</th><th>Deaths</th><th>Ping</th></tr></thead><tbody>${rows}</tbody>
       <tfoot><tr><td></td><td>${rank.length} players</td><td></td><td>${totalKills}</td><td></td><td></td></tr></tfoot></table>`;
   }

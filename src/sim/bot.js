@@ -167,7 +167,7 @@ class Bot {
       if (score > bestScore) { bestScore = score; best = { node: it.node, item: it }; }
     }
     // chase / hunt the enemy when well stocked
-    const strong = p.health + p.armor > 120 && (p.weapons.rl || p.weapons.rg || p.weapons.gl);
+    const strong = g.instagib || (p.health + p.armor > 120 && (p.weapons.rl || p.weapons.rg || p.weapons.gl));
     if (this.enemy && this.enemyLastPos && strong && g.time - this.enemyLastSeen < 4) {
       const n = this.nav.nearest([this.enemyLastPos[0], this.enemyLastPos[1] - 24, this.enemyLastPos[2]], g.col);
       if (n && isFinite(dist[n.i])) {
