@@ -31,19 +31,19 @@ export class Assets {
     const gltf = new GLTFLoader();
     const jobs = [];
     let done = 0;
-    const total = Object.keys(WEAPON_MODELS).length + 2 + CHARACTERS.length + SHOWCASE_CLIPS.length;
+    const total = Object.keys(WEAPON_MODELS).length + 1 + CHARACTERS.length + SHOWCASE_CLIPS.length;
     const tick = () => onProgress(++done / total);
     for (const [name, cfg] of Object.entries(WEAPON_MODELS)) {
       jobs.push(fbx.loadAsync(`/weapons/${cfg.file}.fbx`).then((obj) => { this.weapons[name] = normalizeWeapon(obj, cfg); tick(); }));
     }
-    jobs.push(gltf.loadAsync('/animations/UAL1_Standard.glb').then((g) => { this.character = g.scene; for (const c of g.animations) this.clips[c.name] = c; tick(); }));
+    // UAL1 mannequin cut down to the clips the game plays (tools/glbprune.mjs; list in entities.js)
+    jobs.push(gltf.loadAsync('/animations/ual_mannequin.glb').then((g) => { this.character = g.scene; for (const c of g.animations) this.clips[c.name] = c; tick(); }));
     for (const name of CHARACTERS) {
       jobs.push(fbx.loadAsync(`/characters/${CHARACTER_INFO[name].file}.fbx`).then((obj) => { this.characters[name] = obj; tick(); }));
     }
     // menu showcase: Mixamo idle + taunts, each FBX carries its own copy of the Mixamo skeleton
     const show = [];
     SHOWCASE_CLIPS.forEach((f, i) => jobs.push(fbx.loadAsync(`/animations/${encodeURIComponent(f)}.fbx`).then((obj) => { show[i] = obj; tick(); })));
-    jobs.push(gltf.loadAsync('/animations/UAL2_Standard.glb').then((g) => { for (const c of g.animations) if (!this.clips[c.name]) this.clips[c.name] = c; tick(); }));
     await Promise.all(jobs);
     const clips = show.map((o) => anchorClip(o.animations[0]));
     const idle = clips[0], taunts = clips.slice(1, 1 + TAUNTS.length), [victory, defeat, defeat2] = clips.slice(1 + TAUNTS.length);
