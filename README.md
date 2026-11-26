@@ -1,0 +1,70 @@
+# QRUMPER
+
+Browser arena FPS in the Quake 3 / CPMA tradition. Free-for-all online in rooms (with optional bots), or practice against bots.
+
+```bash
+npm install
+npm run dev        # http://localhost:5173  — game + profile API + multiplayer, all on one port
+npm run build      # static build in dist/
+npm start          # serves dist/ + API + multiplayer on $PORT (default 3000), for production
+npm run serve      # build, then start
+```
+
+Dev shortcut: `http://localhost:5173/?autostart=spire&bots=8&skill=4` skips the menu.
+
+### Hosting (VPS / Docker)
+Everything runs from one Node process and one port: the page, `/api/*` (profiles) and the `/ws` WebSocket (rooms and matches). `npm run dev` works on a server too (`allowedHosts` is open so any domain is accepted), but `npm run build && npm start` is lighter: no Vite in the loop and cached, hashed assets.
+- `PORT` (default 3000) and `HOST` (default 0.0.0.0) pick the address for `npm start`.
+- Profiles are kept in `data/profiles.json` (override the folder with `QRUMPER_DATA`). Mount it as a volume so XP survives container rebuilds.
+- Behind a reverse proxy, forward WebSocket upgrades for `/ws` (nginx: `proxy_http_version 1.1; proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";`). With HTTPS the client switches to `wss://` on its own.
+- The server simulates every match at 125 Hz; a room with 8 humans and a few bots takes a few percent of one core.
+
+## What's in it
+
+| | |
+|---|---|
+| **Mode** | FFA, fraglimit / timelimit, 8 s warmup (announcer welcome, then 3 · 2 · 1 · go), intermission scoreboard |
+| **Multiplayer** | Room browser → lobby (players, chat, rules) → the host starts the match for everyone in the room. The host picks map, fraglimit, timelimit, bots and their skill, max players and the CPM double jump. Players can join a match in progress; when it ends everyone returns to the lobby. Authoritative server (`server/`) running the same `src/sim`; clients send numbered 8 ms commands and predict their own movement, jump pads, teleporters and weapon timing with the shared code, replaying unacknowledged commands on each snapshot (~42/s). Others are interpolated 75 ms back, rockets extrapolated. Hitscan is lag-compensated (rewound to what the shooter saw, up to 300 ms). `node tools/nettest.mjs` checks that prediction matches the server exactly |
+| **Profiles & XP** | First visit asks for a name, fighter and colour. Profiles live on the server (`data/profiles.json`; the browser keeps only the id). XP per frag (100) and per badge (multi kills, precision, headshot, bounced, gibbed, telefrag, revenge), plus 250 for finishing a match and 500 / 250 / 125 for the podium. Levels need 1000 XP, +250 per level. Career kills, deaths, wins, matches and badge counts on the Fighter page; level and XP bar in the top bar; XP summary with level-ups at the end of each match. No rewards yet |
+| **Movement** | Port of Q3 `bg_pmove.c` with CPM physics: accel 15, friction 8, air control 150, air-stop accel 2.5, strafe accel 70 (wishspeed 30). Velocity is snapped to whole units every 125 Hz frame like Q3's `trap_SnapVector` (so the jump peaks at ~48.5 u, the classic 125 fps height), and hard landings start Q3's 250 ms `PMF_TIME_LAND` timer. Quake jumping: 270 u/s, ramp jumps, hold-to-autohop, 18 u step-up, knockback no-friction window, fall damage. CPM double jump (+100 within 400 ms of the last jump) is a match rule, off by default |
+| **Walljump** | UT2004 wall dodge (no ground dodge): double-tap a direction away from a wall while airborne, or press Jump next to a wall. 1.5× ground speed horizontally, perpendicular momentum kept, once per jump. It is the only air jump: it needs a real wall right beside you (a vertical surface at knee and chest height within 20 u of the hull, after 80 ms in the air), so stair risers, curbs and open air give nothing |
+| **Weapons** | Machinegun (spawn weapon), Shotgun, Grenade Launcher, Rocket Launcher, Railgun (models from `assets/weapons`, slots 1–5). Q3 damage, splash, knockback, self-damage halving, rail piercing, weapon drop on death. Grenades: 700 u/s lobbed launch, gravity, 65 % bounces, 2.5 s fuse, burst on player contact |
+| **Items** | +5 / +25 / +50 health, Mega, armor shards, Yellow / Red armor, weapons, ammo. Q3 respawn times, 2/3 armor absorption, >100 decay |
+| **Maps** | Quake-style connected layouts rather than room grids: ramps to jump off, gaps to strafe across, walljump ledges, hazards, 45° corners, arches, colonnades, windows between areas. **Bastion** (duel): rust foundry on five floor heights — sunken RL basin with ramps, crawl tunnel, slime trench with the GL bridge, colonnaded upper hall with the RA shrine, a MH nook reached by walljump or a drop route. **Spire** (FFA): octagonal dusk courtyard around a tower with a spiral of ramps up to the RA landing, a gallery ring on colonnades, four wings on four heights chained into an outer loop (teal RG pit wing, gold great hall with terrace, forge hall with a lava pit under the GL bridge, chem vault with a slime channel before the MH). **Skywalk** (duel, after Aerowalk): walkways over a void (falling kills), plus two floating stepping stones for a strafe-jump route from the MH ledge to the RL ledge. Slime and lava hurt in pulses (`hazards` in the map def); bots avoid them |
+| **Graphics** | Graphics tab with Low / Medium / High / Ultra presets: resolution scale, MSAA, texture filtering (anisotropic, trilinear, point-sampled), effect detail, light glow, dynamic lights, holographic items, decals, ambient dust, screen shake. Follows `arena-shooter-visual-direction-specification.md`: pre-PBR baked stage lighting (hard quadratic falloff, overbright lightmaps hard-clamped, no tone mapping), textures given a load-time paint pass (seam AO and top-edge highlights baked from the normal maps), rationed environment saturation, per-zone coloured fog that the sky horizon dissolves into, chamfered detail brushes with trim-sheet bevels, wall bands and fullbright light strips, mounted light fixtures, Q3-style vertex lighting for models from a directional light grid, rare dynamic lights |
+| **Characters** | Cappi, Froggy and Piggor (`assets/characters`, Mixamo rigs, listed in `CHARACTER_INFO` in `src/sim/defs.js`) driven by the UAL mannequin animations through a runtime retargeter; player identity from a glowing colour rim |
+| **Menu** | Quake Champions style: top bar (logo, sections, your level / XP chip), home screen with the fighter showcase (drag to turn), Multiplayer, Practice, Fighter, Settings, Controls |
+| **Camera & zoom** | Subtle, purely visual camera motion (the aim never moves): landing dip scaled by fall speed, a nudge on jumps, per-weapon recoil spring, a flinch roll when hit, Q3-style run roll. Settings → Game → Camera motion (0 = off). Right mouse zooms: the railgun to a scope FOV (default 40°, with a scope vignette), other weapons by 15 %; mouse speed follows the zoom (Zoom sens.), hold or toggle |
+| **Settings** | Game / Weapons & crosshair / Graphics / HUD tabs. Every weapon can have its own viewmodel placement and its own crosshair (11 SVG styles, colour, size) — tick "Custom … for <weapon>", otherwise it uses the shared values. Menus auto-zoom on large / high-res screens (Menu size: auto or fixed). Weapon position (hand left/center/right, side, height, depth — slides the gun along the line of sight, from far to right in your face — size, tilt) is edited against a live preview that has the screen's aspect ratio and draws the gun exactly like the game does |
+| **HUD** | Frag badges from `assets/icons/badges` (Kill, Double / Triple / Quad / Monster Kill, Precision, Telefrag, Bounced, Gibbed, Headshot) pop up under the crosshair with their XP. Scoreboard (Tab): score, kills, deaths, level, ping, total kills in the match. Quake 3 layout tuned for readability: big outlined numbers with Q3 colours (gold normal, red low, white over 100) for ammo · health · armor, weapon icons rendered from the models, a weapon bar that pops up on switch, score boxes, low-ammo warning, pickup notices, HUD size setting |
+| **VFX** | One hue family per weapon (MG white-yellow, SG amber, GL green, RL orange-red, RG cyan). Atlas-textured particles (lumpy fire, hard-edged cauliflower smoke, sparks, glows) and camera-facing streak ribbons: tapered tracers, velocity-stretched ricochet sparks, rail core + halo + unwinding spiral, layered rocket / grenade explosions (core flash, spherical ring, spinning fireball, staggered smoke, ground shockwave, burning debris, embers, scorch, light, shake), rocket exhaust flame and gap-free trails, layered first-person muzzle flashes (star, glow, flame petals). Pickups are holograms: fresnel shell with rolling scanlines over the item, a projector cone and dashed halo from the plinth, motes; taken items leave a flickering ghost and respawn with a bottom-up materialize sweep. Optional light glow is a quarter-res bright-pass on the final frame, so it only haloes what is already near the overbright clip |
+| **Bots** | Same usercmd → pmove path as the player. Auto-generated nav graph built by simulating real movement between grid points (walk, jump, drop, jump pad, teleporter). Item valuation and timing, reaction time, aim lag and leading, strafe-dodging, strafe-jumping on long paths. 5 skill levels |
+| **Gore** | Hits: a jet of blood streaks out of the exit wound, a spurt back out of the entry, droplets, a puff of red mist, splatter on the surface behind and below the victim (decals tinted by the light grid). Quake gibbing (body at −40 health or below): a blood explosion — a shell of ~200 streaks and droplets, a rolling red cloud, a red flash and light, a wet ring under the body, splatter on walls / ceiling / floor all around, a rain of droplets, a jolt if it happened next to you — and 18 tumbling chunks that bounce, trail and smear blood. Other bodies pool blood. Toggle in Settings → Game |
+| **Announcer** | `assets/audio/announcer`: welcome + countdown, Double / Triple / Quad / Monster Kill (UT-style, frags within 3 s), Dismembered / Mutilated (gib kill), Precision (two rail hits in a row), Revenge (frag whoever fragged you last), Telefrag, Died 3 times in a row (every third death without a frag), You Win / You Lose (two variants). Awards come from the sim as `award` events (also Kill, Headshot — a rail / MG killing blow in the top of the hull — and Bounced — a grenade kill after a bounce, which have badges but no voice line yet); lines are queued, never overlap |
+| **Audio** | Main menu music (`assets/audio/music`, Music volume in Settings, fades out when a match starts). Weapon shots, explosions, pickups, death screams, gibs, grenade bounces, body hits, dry fire and weapon switching use the samples in `assets/audio` (mapped in `SAMPLES` in `src/client/audio.js`, loudness-matched and lead-trimmed at load). Footsteps, grunts, landing, jump pads, teleports and item respawns use samples too. A few sounds are still synthesized; `docs/missing-sounds.md` lists them and the samples still wanted. All spatialized; CPMA-style pitched hitsounds |
+
+## Layout
+
+```
+src/sim/       # pure simulation, no three.js (runs in Node too)
+  collision.js   brush/plane collision, swept-box traces (CM_TraceThroughBrush)
+  pmove.js       CPMA movement + UT wall dodge
+  game.js        FFA rules, weapons, items, damage, triggers, events
+  nav.js / bot.js
+  defs.js        weapon & item tables
+src/maps/      # map definitions (rooms carved from solid + detail brushes)
+src/render/    # world builder + light baking, entities, effects, view weapon
+  xp.js          XP values, badges, levels
+src/client/    # session loop (125 Hz fixed tick + interpolation), input, HUD, audio
+  net.js / netmatch.js   socket + client prediction / reconciliation / interpolation (no three.js)
+  profile.js     profile store client (server API, localStorage fallback)
+server/        # index.js (production http), net.js (/ws), rooms.js (lobbies + matches), profiles.js (file store + API), vite-plugin.js
+tools/         # node test scripts: simtest.mjs, movetest.mjs, navdebug.mjs, nettest.mjs (rooms + prediction against a real server); browserprobe.mjs / shot.mjs / gameshot.mjs (map viewpoints) / fxshot.mjs (weapon effects) / menushot.mjs (menu, profile, weapon settings) drive headless Chromium against `npx vite --port 5199`
+dev/           # debug pages: world.html (map renderer), model.html (models/anims), weapons.html (weapon orientation check), inspect.html?f=/path.fbx (dump FBX bones/meshes/bounds)
+```
+
+### Making maps
+A map is a list of `spaces` (air boxes carved out of the solid world, each with floor/wall/ceiling textures and optional `trim` / `crown` / `strip` wall bands), detail `solids` (`box` — chamfered unless `bevel: false`, with `bevelTex` and optional fullbright `emit` colour — `ramp`, `stairs`, `wedge` (45° corner fill, `keep: '+x-z'`…), `cut` (box trimmed by arbitrary planes), `arch` (door frame with haunches)), `hazards` (`{ b, dmg, mod: 'slime' | 'lava' }`), `lights` (`{ fixture: false }` skips the mounted lamp), a `look` (fog colour/density, fog `zones`, ambient tint, saturation, sky planet), `items`, `spawns`, `jumppads` and `teleporters`. Texture names are files in `assets/textures/textures_256/Color Maps` (the matching `_normal` map is used automatically) or procedural trim sheets: `proc_trim`, `proc_hazard`, `proc_tech`, `proc_light`. Check bot connectivity with `node tools/navdebug.mjs <map>`.
+
+### Netcode notes
+`Game.tick()` is deterministic given player commands, and clients only read state plus `game.events`, so a client's mirror `Game` (never ticked) is fed by snapshots and the renderer / HUD work unchanged. Remote players' commands queue in `p.cmdQueue` and run one per tick (`Game.remoteThink`); `weaponStep()` and `touchMovers()` in `game.js` are shared with the client's predictor. Events the client already predicted for itself (jump, land, fire, switch, pads, teleports) are dropped from snapshots.

@@ -1,0 +1,28 @@
+<!doctype html><html><body style="margin:0;background:#000"><script type="module">
+import * as THREE from 'three';
+import { Assets, CHARACTERS } from '/src/render/assets.js';
+import { PlayerModel, ItemView } from '/src/render/entities.js';
+import { Effects } from '/src/render/effects.js';
+import { ITEMS } from '/src/sim/defs.js';
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(1280, 720); r.outputColorSpace = THREE.SRGBColorSpace; document.body.appendChild(r.domElement);
+const s = new THREE.Scene(); s.background = new THREE.Color(0x404850);
+s.add(new THREE.AmbientLight(0xffffff, 0.75)); const d = new THREE.DirectionalLight(0xffffff, 0.75); d.position.set(0.3, 1, 0.4); s.add(d);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshLambertMaterial({ color: 0x555555 })); floor.rotation.x = -Math.PI / 2; s.add(floor);
+const a = new Assets(); await a.load();
+const fx = new Effects(s, null);
+// [label, yaw, pitch, vel, onGround, ducked, weapon]
+const cases = [['idle', 0, 0, [0,0,0], true, false, 'rl'], ['run fwd', 0, 0, [0,0,-320], true, false, 'rg'], ['strafe R', 0, 0, [320,0,0], true, false, 'gl'],
+  ['back', 0, 0, [0,0,320], true, false, 'sg'], ['aim up', 0, 60, [0,0,0], true, false, 'rl'], ['aim down', 0, -60, [0,0,0], true, false, 'rl'], ['air', 0, 0, [0,200,-300], false, false, 'mg'], ['crouch', 0, 0, [0,0,0], true, true, 'sg']];
+const models = cases.map((c, i) => { const m = new PlayerModel(a, [0x3d8bff,0xff4040,0x40d060,0xffc020,0xc050ff,0x30e0e0,0xff8030,0xf0f0f0][i], s, CHARACTERS[i % CHARACTERS.length]); m.setWeapon(a, c[6]); return m; });
+const items = ['ra','ya','mh','h25','h5','shard','am_rl','rg'].map((t, i) => { const v = new ItemView(a, fx, { type: t, def: ITEMS[t], pos: [-280 + i * 80, 0, 160], active: true }, s); return v; });
+const cam = new THREE.PerspectiveCamera(50, 1280/720, 1, 5000);
+const q = new URLSearchParams(location.search); const side = q.get('side');
+// models face -Z (yaw 0) => camera on -Z side looking +Z sees their front
+cam.position.set(side ? 600 : 0, 60, side ? -40 : -520); cam.lookAt(0, 30, side ? -40 : 0);
+window.models = models; window.cam = cam;
+if (q.get('close')) { cam.position.set(-200, 50, -170); cam.lookAt(-200, 30, -40); }
+let t = 0;
+function step(dt) { t += dt; cases.forEach((c, i) => models[i].update(dt, [-350 + i * 100, 24, -40], c[1] + (side ? 0 : 0), c[2], c[3], c[4], c[5], [1,1,1])); items.forEach(v => v.update(t, dt, null)); }
+for (let i = 0; i < 30; i++) step(1/60);
+r.render(s, cam); window.again = (n) => { for (let i = 0; i < n; i++) step(1/60); r.render(s, cam); }; document.title = 'ready';
+</script></body></html>

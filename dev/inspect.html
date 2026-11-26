@@ -1,0 +1,19 @@
+<!doctype html><html><body><script type="module">
+// Dumps structure of FBX files (bones, meshes, materials, bounds) into window.__info.
+import * as THREE from 'three';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+const files = new URLSearchParams(location.search).get('f').split(',');
+const L = new FBXLoader(); const out = {};
+for (const f of files) {
+  const o = await L.loadAsync(f);
+  o.updateMatrixWorld(true);
+  const b = new THREE.Box3().setFromObject(o);
+  const bones = [], meshes = [];
+  o.traverse((m) => {
+    if (m.isBone) bones.push(m.name);
+    if (m.isMesh) { const mats = [].concat(m.material); meshes.push({ name: m.name, skinned: !!m.isSkinnedMesh, verts: m.geometry.attributes.position.count, mats: mats.map((x) => ({ n: x.name, type: x.type, map: !!x.map, mapImg: x.map?.image ? (x.map.image.width + 'x' + x.map.image.height) : null, color: x.color?.getHexString(), emissiveMap: !!x.emissiveMap, normalMap: !!x.normalMap })) }); }
+  });
+  out[f] = { min: b.min.toArray().map(Math.round), max: b.max.toArray().map(Math.round), scale: o.scale.toArray(), children: o.children.map((c) => c.name + ':' + c.type), anims: o.animations.map((a) => a.name + ' ' + a.duration.toFixed(2)), bones: bones.length + ' ' + bones.slice(0, 70).join(','), meshes };
+}
+window.__info = out; document.title = 'ready';
+</script></body></html>

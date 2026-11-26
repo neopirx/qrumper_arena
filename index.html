@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QRUMPER ARENA</title>
+  <link rel="preload" href="/fonts/Proxime.ttf" as="font" type="font/ttf" crossorigin />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="hud"></div>
+
+  <div id="menu" class="screen">
+    <div class="menu-bg"><div class="bg-map" id="bg-map"></div><div class="bg-grade"></div></div>
+    <div class="menu-wrap" id="menu-wrap">
+      <header class="topbar">
+        <div class="logo brand">QRUMPER</div>
+        <nav class="mainnav" id="mainnav">
+          <button data-go="p-main">Home</button><button data-go="p-mp">Multiplayer</button><button data-go="p-play">Practice</button><button data-go="p-profile">Fighter</button><button data-go="p-settings">Settings</button><button data-go="p-controls">Controls</button>
+        </nav>
+        <button class="chip" id="chip" data-go="p-profile" title="Your fighter">
+          <span class="lv" id="chip-lv">1</span>
+          <span class="chip-txt"><b id="chip-name">Player</b><small id="chip-sub">Level 1</small><span class="xpbar"><i id="chip-xp"></i></span></span>
+        </button>
+      </header>
+
+      <div class="menu-inner">
+        <div class="panel home" id="p-main">
+          <div class="home-left">
+            <div class="kicker">Arena · Free for all</div>
+            <h1 class="home-title">Ready<br />to <em>frag?</em></h1>
+            <div class="modes">
+              <button class="mode primary" data-go="p-mp"><b>Multiplayer</b><span>Create a room or join friends</span></button>
+              <button class="mode" data-go="p-play"><b>Practice</b><span>Free for all against bots</span></button>
+            </div>
+            <div class="stats" id="home-stats"></div>
+          </div>
+          <div class="home-stage" id="home-stage"><div class="champ-name" id="champ-name"></div><div class="champ-blurb" id="champ-blurb"></div></div>
+        </div>
+
+        <div class="panel hidden" id="p-play">
+          <h2>Practice · Free For All</h2>
+          <div class="maps" id="maps"></div>
+          <div class="row"><label>Bots</label><input type="range" id="bots" min="1" max="11" /><output id="bots-v"></output></div>
+          <div class="row"><label>Bot skill</label><input type="range" id="skill" min="1" max="5" /><output id="skill-v"></output></div>
+          <div class="row"><label>Fraglimit</label><input type="range" id="fraglimit" min="5" max="50" step="5" /><output id="fraglimit-v"></output></div>
+          <div class="row"><label>Timelimit</label><input type="range" id="timelimit" min="0" max="30" step="5" /><output id="timelimit-v"></output></div>
+          <div class="row check"><label><input type="checkbox" id="doubleJump" /> CPM double jump</label><span></span></div>
+          <div class="actions"><button class="btn" data-go="p-main">Back</button><button class="btn primary" id="start">Fight</button></div>
+        </div>
+
+        <div class="panel hidden" id="p-mp">
+          <h2>Multiplayer</h2>
+          <div class="mp-status" id="mp-status">Connecting…</div>
+          <div class="rooms" id="rooms"></div>
+          <div class="mp-create"><input type="text" id="room-name" maxlength="28" placeholder="Room name" spellcheck="false" autocomplete="off" /><button class="btn primary" id="room-create">Create room</button></div>
+          <div class="actions"><button class="btn" data-go="p-main">Back</button><button class="btn" id="rooms-refresh">Refresh</button></div>
+        </div>
+
+        <div class="panel hidden wide" id="p-lobby">
+          <div class="lobby-head"><h2 id="lobby-name">Room</h2><span class="tag" id="lobby-state"></span></div>
+          <div class="lobby">
+            <div class="lobby-col">
+              <h3>Players</h3>
+              <ul class="members" id="lobby-members"></ul>
+              <div class="chat"><div class="chat-log" id="chat-log"></div><input type="text" id="chat-in" maxlength="200" placeholder="Say something…  (Enter)" spellcheck="false" autocomplete="off" /></div>
+            </div>
+            <div class="lobby-col rules" id="lobby-rules">
+              <h3>Match rules</h3>
+              <div class="maps compact" id="lobby-maps"></div>
+              <div class="row"><label>Fraglimit</label><input type="range" id="lr-fraglimit" min="5" max="50" step="5" /><output id="lr-fraglimit-v"></output></div>
+              <div class="row"><label>Timelimit</label><input type="range" id="lr-timelimit" min="0" max="30" step="5" /><output id="lr-timelimit-v"></output></div>
+              <div class="row"><label>Bots</label><input type="range" id="lr-bots" min="0" max="10" /><output id="lr-bots-v"></output></div>
+              <div class="row"><label>Bot skill</label><input type="range" id="lr-skill" min="1" max="5" /><output id="lr-skill-v"></output></div>
+              <div class="row"><label>Max players</label><input type="range" id="lr-maxPlayers" min="2" max="12" /><output id="lr-maxPlayers-v"></output></div>
+              <div class="row check"><label><input type="checkbox" id="lr-doubleJump" /> CPM double jump</label><span></span></div>
+              <p class="note" id="lobby-note"></p>
+            </div>
+          </div>
+          <div class="actions"><button class="btn" id="lobby-leave">Leave room</button><button class="btn primary" id="lobby-start">Start match</button></div>
+        </div>
+
+        <div class="panel hidden" id="p-profile">
+          <h2 id="profile-title">Fighter</h2>
+          <p class="note setup-only">Pick a name and a fighter. Your XP, levels and stats are saved to this profile.</p>
+          <div class="profile">
+            <div class="profile-stage" id="profile-stage"><div class="who" id="profile-who"></div></div>
+            <div class="profile-fields">
+              <label class="cap" for="name">Name</label>
+              <input type="text" id="name" maxlength="16" spellcheck="false" autocomplete="off" />
+              <label class="cap">Fighter</label>
+              <div class="chars" id="chars"></div>
+              <label class="cap">Colour</label>
+              <div class="swatches" id="swatches"></div>
+              <div class="career" id="career"></div>
+            </div>
+          </div>
+          <div class="actions"><button class="btn not-setup" data-go="p-main">Back</button><span class="setup-only"></span><button class="btn primary setup-only" id="setup-done">Enter the arena</button></div>
+        </div>
+
+      <div class="panel hidden" id="p-settings">
+        <h2>Settings</h2>
+        <div class="tabs" id="settings-tabs">
+          <button data-tab="t-game" class="sel">Game</button><button data-tab="t-weapon">Weapons &amp; crosshair</button><button data-tab="t-gfx">Graphics</button><button data-tab="t-hud">HUD</button>
+        </div>
+        <div class="tab" id="t-game">
+          <div class="row"><label>Sensitivity</label><input type="range" id="sensitivity" min="0.5" max="10" step="0.1" /><output id="sensitivity-v"></output></div>
+          <div class="row"><label>Field of view</label><input type="range" id="fov" min="80" max="130" step="1" /><output id="fov-v"></output></div>
+          <div class="row"><label>Volume</label><input type="range" id="volume" min="0" max="1" step="0.05" /><output id="volume-v"></output></div>
+          <div class="row"><label>Music</label><input type="range" id="musicVolume" min="0" max="1" step="0.05" /><output id="musicVolume-v"></output></div>
+          <div class="row check"><label><input type="checkbox" id="invertMouse" /> Invert mouse</label><label><input type="checkbox" id="walljumpOnJump" /> Walljump with jump key</label></div>
+          <div class="row check"><label><input type="checkbox" id="autoSwitch" /> Switch on pickup</label><label><input type="checkbox" id="hitSounds" /> Hit sounds</label></div>
+          <div class="row check"><label><input type="checkbox" id="gore" /> Blood and gibs</label><label><input type="checkbox" id="announcer" /> Announcer</label></div>
+          <div class="row"><label>Camera motion</label><input type="range" id="camMotion" min="0" max="1.5" step="0.05" /><output id="camMotion-v"></output></div>
+          <div class="row"><label>Rail zoom FOV</label><input type="range" id="zoomFov" min="15" max="80" step="1" /><output id="zoomFov-v"></output></div>
+          <div class="row"><label>Other zoom</label><input type="range" id="zoomOther" min="0" max="0.4" step="0.01" /><output id="zoomOther-v"></output></div>
+          <div class="row"><label>Zoom sens.</label><input type="range" id="zoomSens" min="0.3" max="1.5" step="0.05" /><output id="zoomSens-v"></output></div>
+          <div class="row check"><label><input type="checkbox" id="zoomToggle" /> Zoom toggles (instead of hold)</label><span></span></div>
+          <div class="row"><label>Menu size</label><input type="range" id="menuScale" min="0" max="2.5" step="0.05" /><output id="menuScale-v"></output></div>
+        </div>
+        <div class="tab gun hidden" id="t-weapon">
+          <div class="gun-left">
+            <div class="gun-pick" id="gun-pick"></div>
+            <div class="gun-preview" id="gun-preview"><div class="hud-xhair" id="preview-xhair"></div><div class="hint">Click to test-fire</div></div>
+            <p class="note">The preview has your screen's shape, so the gun sits exactly where it will in a match.</p>
+          </div>
+          <div class="gun-right">
+            <div class="scope"><label><input type="checkbox" id="gunCustom" /> Custom viewmodel for <b class="wname"></b></label><small id="gunScopeNote">Editing the placement shared by all weapons</small></div>
+            <div class="row wide"><label>Hand</label><div class="seg" id="gunHand"><button data-v="left">Left</button><button data-v="center">Center</button><button data-v="right">Right</button></div></div>
+            <div class="row"><label>Side</label><input type="range" id="gunX" min="-16" max="16" step="0.25" /><output id="gunX-v"></output></div>
+            <div class="row"><label>Height</label><input type="range" id="gunY" min="-12" max="10" step="0.25" /><output id="gunY-v"></output></div>
+            <div class="row"><label>Depth</label><input type="range" id="gunZ" min="-22" max="12" step="0.25" /><output id="gunZ-v"></output></div>
+            <div class="row"><label>Size</label><input type="range" id="gunSize" min="0.5" max="1.6" step="0.02" /><output id="gunSize-v"></output></div>
+            <div class="row"><label>Tilt</label><input type="range" id="gunTilt" min="-10" max="20" step="0.5" /><output id="gunTilt-v"></output></div>
+            <div class="row check"><label><input type="checkbox" id="gunVisible" /> Draw gun</label><label><input type="checkbox" id="bob" /> Gun bob</label></div>
+            <div><button class="btn small" id="gun-reset">Reset position</button></div>
+            <div class="scope"><label><input type="checkbox" id="xhCustom" /> Custom crosshair for <b class="wname"></b></label><small id="xhScopeNote">Editing the crosshair shared by all weapons</small></div>
+            <div class="xh-grid" id="xh-grid"></div>
+            <div class="row"><label>Colour</label><input type="color" id="crosshairColor" /><span></span></div>
+            <div class="row"><label>Size</label><input type="range" id="crosshairSize" min="8" max="64" step="1" /><output id="crosshairSize-v"></output></div>
+          </div>
+        </div>
+        <div class="tab hidden" id="t-gfx">
+          <div class="row wide"><label>Preset</label><div class="seg" id="gfxPreset"><button data-v="low">Low</button><button data-v="medium">Medium</button><button data-v="high">High</button><button data-v="ultra">Ultra</button><button data-v="custom">Custom</button></div></div>
+          <div class="row"><label>Resolution</label><input type="range" id="gfx-renderScale" min="0.5" max="2" step="0.05" /><output id="gfx-renderScale-v"></output></div>
+          <div class="row"><label>Textures</label><select id="gfx-texFilter"><option value="aniso">Anisotropic 16×</option><option value="trilinear">Trilinear</option><option value="nearest">Point-sampled (software look)</option></select><span></span></div>
+          <div class="row"><label>Effects</label><select id="gfx-particles"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select><span></span></div>
+          <div class="row"><label>Screen shake</label><input type="range" id="gfx-shake" min="0" max="1" step="0.05" /><output id="gfx-shake-v"></output></div>
+          <div class="row check"><label><input type="checkbox" id="gfx-bloom" /> Light glow (bloom)</label><label><input type="checkbox" id="gfx-dynLights" /> Dynamic lights</label></div>
+          <div class="row check"><label><input type="checkbox" id="gfx-holo" /> Holographic items</label><label><input type="checkbox" id="gfx-decals" /> Scorch marks &amp; bullet holes</label></div>
+          <div class="row check"><label><input type="checkbox" id="gfx-sky" /> Animated sky &amp; dust</label><label><input type="checkbox" id="gfx-antialias" /> Anti-aliasing (MSAA)</label></div>
+          <p class="note" id="gfx-note">Texture filtering and anti-aliasing apply from the next match / reload.</p>
+        </div>
+        <div class="tab hidden" id="t-hud">
+          <div class="row"><label>HUD size</label><input type="range" id="hudScale" min="0.7" max="1.5" step="0.05" /><output id="hudScale-v"></output></div>
+          <div class="row check"><label><input type="checkbox" id="speedometer" /> Speedometer</label><label><input type="checkbox" id="showFps" /> Show FPS</label></div>
+          <div class="row check"><label><input type="checkbox" id="weaponBarAlways" /> Always show weapon bar</label><span></span></div>
+        </div>
+        <div class="actions"><button class="btn" id="settings-back">Back</button></div>
+      </div>
+
+      <div class="panel hidden" id="p-controls">
+          <h2>Controls</h2>
+          <table class="keys">
+            <tr><td>W A S D</td><td>Move</td></tr>
+            <tr><td>Space</td><td>Jump (hold to bunny hop)</td></tr>
+            <tr><td>Right mouse</td><td>Zoom (railgun: scope zoom, other weapons: slight zoom)</td></tr>
+            <tr><td>C / Left Shift</td><td>Crouch</td></tr>
+            <tr><td>Left mouse</td><td>Fire</td></tr>
+            <tr><td>1 – 5, wheel, Q</td><td>Weapons (MG · SG · GL · RL · RG) · next/prev · last</td></tr>
+            <tr><td>Tab</td><td>Scoreboard</td></tr>
+            <tr><td>Esc</td><td>Pause menu (online the match keeps going)</td></tr>
+          </table>
+          <h3>Movement</h3>
+          <p class="note"><b>CPMA physics.</b> Strafe-jump (hold W + A/D, steer with the mouse, keep jumping) to build speed. With W alone in the air you get CPM air control for sharp turns; A/D alone gives fast air strafing. Hold Jump to bunny hop on landing. On ramps your jump carries their upward speed. Rooms can turn on the CPM double jump (a second jump within 0.4 s, for stairs and ledges).</p>
+          <p class="note"><b>Walljump (UT style).</b> While airborne right next to a wall, double-tap a direction pointing away from it, or just press Jump, to kick off the wall. It's the only way to jump again in the air: one walljump per jump, it needs a real wall beside you, and there's no ground dodge.</p>
+          <div class="actions"><button class="btn" data-go="p-main">Back</button></div>
+        </div>
+
+        <div class="panel hidden" id="p-pause">
+          <h2>Paused</h2>
+          <p class="note online-only">You're online: the match keeps running while this menu is open.</p>
+          <button class="btn primary" id="resume">Resume</button>
+          <button class="btn" id="pause-settings">Settings</button>
+          <button class="btn offline-only" id="restart">Restart match</button>
+          <button class="btn" id="quit">Quit to menu</button>
+        </div>
+      </div>
+    </div>
+    <div class="toast hidden" id="toast"></div>
+  </div>
+
+  <div id="loading" class="screen hidden">
+    <div class="load-inner">
+      <div class="logo load-logo">QRUMPER</div>
+      <div class="load-map" id="load-map"></div>
+      <div class="bar"><div id="load-bar"></div></div>
+      <div class="load-msg" id="load-msg">Loading…</div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

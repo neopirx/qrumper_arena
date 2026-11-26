@@ -1,0 +1,21 @@
+<!doctype html><html><body style="margin:0;background:#000"><script type="module">
+import * as THREE from 'three';
+import { buildMap } from '/src/maps/builder.js';
+import { CollisionWorld } from '/src/sim/collision.js';
+import { buildWorld, TextureBank } from '/src/render/world.js';
+import bastion from '/src/maps/bastion.js';
+import spire from '/src/maps/spire.js';
+const q = new URLSearchParams(location.search);
+const def = q.get('map') === 'spire' ? spire : bastion;
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(1200, 600); document.body.appendChild(r.domElement);
+const t0 = performance.now();
+const map = buildMap(def); const col = new CollisionWorld(map.brushes);
+const w = await buildWorld(map, col, new TextureBank(r));
+console.log('brushes', map.brushes.length, 'faces', w.faceCount, 'lm', w.lmTex.image.width, w.lmTex.image.height, 'ms', Math.round(performance.now() - t0));
+const s = new THREE.Scene(); s.background = new THREE.Color(0.4, 0.5, 0.65); s.add(w.group);
+const cam = new THREE.PerspectiveCamera(90, 2, 4, 10000);
+const views = JSON.parse(q.get('views') || '[[0,60,250,0,0]]');
+window.shots = views.length; window.cur = 0;
+window.render = (i) => { const v = views[i]; cam.position.set(v[0], v[1], v[2]); cam.rotation.set(v[4] * Math.PI / 180, v[3] * Math.PI / 180, 0, 'YXZ'); r.render(s, cam); };
+window.render(0); document.title = 'ready';
+</script></body></html>
