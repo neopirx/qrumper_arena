@@ -237,6 +237,10 @@ export class Audio {
     B.switch = buf(c, 0.12, (t, i, s) => lp(s, 0.4, t < 0.015 || (t > 0.06 && t < 0.075) ? noise() : 0) * 0.7);
     B.walljump = buf(c, 0.25, (t, i, s) => { s.ph += 2 * Math.PI * (140 + t * 500) / SR; return (Math.sin(s.ph) * 0.6 + lp(s, 0.2, noise()) * 0.5) * env(t, 0.003, 0.07); });
     B.rocketLoop = buf(c, 1.0, (t, i, s) => lp(s, 0.04, noise()) * (0.8 + 0.2 * Math.sin(t * 2 * Math.PI * 12)));
+    // menu: a dry tick when the selection moves, a rising two-note blip to confirm, falling to go back
+    B.uiMove = buf(c, 0.05, (t, i, s) => (Math.sin(2 * Math.PI * 2100 * t) * 0.3 + lp(s, 0.6, noise()) * 0.25) * env(t, 0.0005, 0.008));
+    B.uiOk = buf(c, 0.2, (t) => Math.sin(2 * Math.PI * (t < 0.055 ? 740 : 1110) * t) * 0.35 * env(t < 0.055 ? t : t - 0.055, 0.002, 0.05));
+    B.uiBack = buf(c, 0.2, (t) => Math.sin(2 * Math.PI * (t < 0.055 ? 990 : 660) * t) * 0.3 * env(t < 0.055 ? t : t - 0.055, 0.002, 0.05));
     B.glExplode = B.explode;
     B.megaArmor = B.armor;
   }

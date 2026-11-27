@@ -4,7 +4,7 @@ import { TextureBank } from './render/world.js';
 import { setTextureFilter } from './render/textures.js';
 import { Audio } from './client/audio.js';
 import { Session } from './client/session.js';
-import { loadSettings, saveSettings, DEFAULTS, GUN_KEYS, PER_GUN_KEYS, GRAPHICS_DEFAULTS, GRAPHICS_PRESETS } from './client/settings.js';
+import { loadSettings, saveSettings, DEFAULTS, DEFAULT_GUNS, GUN_KEYS, PER_GUN_KEYS, GRAPHICS_DEFAULTS, GRAPHICS_PRESETS } from './client/settings.js';
 import { CROSSHAIRS, XHAIR_KEYS, xhairFor, crosshairSVG, applyCrosshair } from './client/crosshair.js';
 import { Previews } from './client/previews.js';
 import { CHARACTER_INFO, CHARACTERS } from './render/assets.js';
@@ -46,20 +46,54 @@ function toast(msg, secs = 3.5) {
 
 // ---------------- menu ----------------
 let previews = null;   // created once the models are loaded
-let panel = 'p-main', tab = 't-game';
+let panel = null, tab = 't-game';
 function show(id) {
+  const from = panel;
   panel = id;
   for (const p of document.querySelectorAll('.panel')) p.classList.toggle('hidden', p.id !== id);
-  for (const b of $('mainnav').children) b.classList.toggle('sel', b.dataset.go === id || (id === 'p-lobby' && b.dataset.go === 'p-mp'));
+  // entrance: each page slides in when it opens
+  const el = $(id);
+  if (from !== id) { el.classList.remove('enter'); void el.offsetWidth; el.classList.add('enter'); }
+  // header: the home screen has none; other pages show back + where you are
+  const setup = $('menu').classList.contains('setup');
+  $('menu').classList.toggle('at-home', id === 'p-main');
+  $('menu').dataset.panel = id;
+  $('crumb-title').textContent = setup && id === 'p-profile' ? 'Create your fighter' : el.dataset.title || '';
+  $('crumb').querySelector('small').textContent = setup ? 'Welcome to the arena' : id === 'p-lobby' ? 'Multiplayer' : 'Main menu';
+  $('menu').classList.toggle('no-back', setup || id === 'p-lobby' || id === 'p-pause');
   if (id === 'p-mp') mpEnter();
   if (id === 'p-main' || id === 'p-profile') syncHome();
+  if (id === 'p-play') syncPlay();
+  if (id === 'p-pause' && session) $('pause-map').textContent = `${session.map?.name || ''} · ${modeName(session.game.mode, session.game.instagib)}`;
+  refreshSteppers();
   syncPreview();
+  // keyboard: the first menu item is selected when a menu opens
+  const first = el.querySelector('.mmenu .mi:not(.hidden), .opts .row.step');
+  if (first && from !== id && !setup) { select(first); requestAnimationFrame(() => { if (panel === id && !el.classList.contains('hidden')) first.focus({ preventScroll: true }); }); }
 }
+// the selected menu item / option keeps its highlight even when focus goes elsewhere
+const SELECTABLE = '.mmenu .mi, .opts .row.step, .fight';
+function select(el) {
+  const scope = el.closest('.panel');
+  for (const x of scope.querySelectorAll(SELECTABLE)) x.classList.toggle('sel', x === el);
+}
+document.addEventListener('focusin', (e) => { if (e.target.matches?.(SELECTABLE)) select(e.target); });
+// back: Esc or the header's back button
+function goBack() {
+  if ($('menu').classList.contains('setup')) return;
+  if (panel === 'p-settings') return show(settingsReturn);
+  if (panel === 'p-play' || panel === 'p-mp' || panel === 'p-profile') { uiSound('uiBack'); show('p-main'); }
+}
+$('menu-back').addEventListener('click', goBack);
+// menu sounds (quiet; silent until the first click has started the audio)
+function uiSound(name) { audio.play(name, null, { volume: name === 'uiMove' ? 0.25 : 0.4, noVary: true }); }
 const previewMode = () => (panel === 'p-profile' || panel === 'p-main') ? 'profile' : panel === 'p-settings' && tab === 't-weapon' ? 'weapon' : null;
-// attach the shared preview renderer to whichever panel needs it
+// attach the shared preview renderer to whichever panel needs it. In a match (pause menu) only
+// the weapon preview can be open; it has its own small renderer, so it works there too
+const previewAllowed = (want) => want && (!session || want === 'weapon');
 async function syncPreview() {
   const want = previewMode();
-  if (!want || session) { if (previews) previews.detach(); return; }
+  if (!previewAllowed(want)) { if (previews) previews.detach(); return; }
   await assetsReady;
   if (!previews) {
     previews = new Previews(assets, settings);
@@ -67,12 +101,13 @@ async function syncPreview() {
     // weapon buttons show the gun's own icon once the models are in
     for (const b of gunPick.children) if (assets.icons[b.dataset.w]) b.innerHTML = `<img src="${assets.icons[b.dataset.w]}" alt="${WEAPONS[b.dataset.w].name}">`;
   }
-  if (previewMode() !== want || session) return;   // the player moved on while models were loading
+  if (previewMode() !== want || !previewAllowed(want)) return;   // the player moved on while models were loading
   if (want === 'profile') previews.showProfile($(panel === 'p-main' ? 'home-stage' : 'profile-stage'));
   else { fitGunPreview(); previews.showWeapon($('gun-preview')); }
 }
 document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => {
   audio.init();
+  uiSound('uiOk');
   if (b.dataset.go === 'p-settings') settingsReturn = session ? 'p-pause' : 'p-main';
   // in a room, "Multiplayer" means the lobby
   show(b.dataset.go === 'p-mp' && mp.room ? 'p-lobby' : b.dataset.go);
@@ -134,7 +169,7 @@ for (const id of Object.keys(fmt)) {
 }
 for (const id of Object.keys(outputs)) outputs[id]();
 applyMenuScale();
-const CHECKS = ['invertMouse', 'speedometer', 'walljumpOnJump', 'autoSwitch', 'gunVisible', 'bob', 'viewBob', 'speedFov', 'hitSounds', 'showFps', 'weaponBarAlways', 'gore', 'announcer', 'zoomToggle', 'doubleJump', 'instagib'];
+const CHECKS = ['invertMouse', 'speedometer', 'walljumpOnJump', 'autoSwitch', 'gunVisible', 'bob', 'viewBob', 'speedFov', 'hitSounds', 'showFps', 'weaponBarAlways', 'gore', 'announcer', 'zoomToggle', 'doubleJump', 'instagib', 'dmgNumbers'];
 const syncChecks = () => { for (const id of CHECKS) $(id).checked = !!target(id)[id]; };
 for (const id of CHECKS) {
   const el = $(id);
@@ -235,6 +270,76 @@ document.addEventListener('input', (e) => { if (e.target.type === 'range') fillR
 setInterval(fillRanges, 300);
 fillRanges();
 
+// ---- steppers: "◀ value ▶" for the match options. The input stays in the row (hidden) and
+// keeps doing the work: a step sets its value and fires the same event a drag or click would
+const steppers = [];
+for (const row of document.querySelectorAll('.row.step')) {
+  const ctl = row.querySelector('input, select');
+  row.tabIndex = 0;
+  ctl.classList.add('stp-ctl');
+  ctl.tabIndex = -1;
+  const box = document.createElement('div');
+  box.className = 'stp';
+  const prev = document.createElement('button'), next = document.createElement('button');
+  prev.className = 'sp prev'; next.className = 'sp next'; prev.tabIndex = next.tabIndex = -1;
+  const val = row.querySelector('output') || document.createElement('output');
+  box.append(prev, val, next);
+  row.appendChild(box);
+  const step = (d) => {
+    if (ctl.type === 'range') {
+      const v = Math.min(+ctl.max, Math.max(+ctl.min, +ctl.value + d * (+ctl.step || 1)));
+      if (v === +ctl.value) return;
+      ctl.value = v; ctl.dispatchEvent(new Event('input'));
+    } else if (ctl.tagName === 'SELECT') {
+      const n = ctl.options.length;
+      ctl.selectedIndex = (ctl.selectedIndex + d + n) % n; ctl.dispatchEvent(new Event('change'));
+    } else { ctl.checked = !ctl.checked; ctl.dispatchEvent(new Event('change')); }
+    uiSound('uiMove');
+    refreshSteppers();
+  };
+  prev.addEventListener('click', (e) => { e.stopPropagation(); audio.init(); step(-1); });
+  next.addEventListener('click', (e) => { e.stopPropagation(); audio.init(); step(1); });
+  row.addEventListener('click', () => { row.focus(); if (ctl.type === 'checkbox') { audio.init(); step(1); } });
+  row.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); } else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); } else if (e.key === 'Enter' && ctl.type !== 'range') step(1);
+  });
+  steppers.push({ row, ctl, val, prev, next });
+}
+function refreshSteppers() {
+  for (const st of steppers) {
+    const c = st.ctl;
+    if (c.type === 'range') { st.prev.disabled = +c.value <= +c.min; st.next.disabled = +c.value >= +c.max; } else if (c.tagName === 'SELECT') st.val.textContent = c.options[c.selectedIndex]?.text || '';
+    else { st.val.textContent = c.checked ? 'On' : 'Off'; st.row.classList.toggle('on', c.checked); }
+  }
+  if (panel === 'p-play') syncPlay();
+}
+
+// ---- keyboard: arrows move through the menu items / options, Enter picks, Esc goes back
+document.addEventListener('keydown', (e) => {
+  if ($('menu').classList.contains('hidden') || !$('loading').classList.contains('hidden')) return;
+  if (session && !session.paused) return;
+  const a = document.activeElement;
+  const typing = (a?.tagName === 'INPUT' && a.type === 'text') || a?.tagName === 'SELECT' || a?.tagName === 'TEXTAREA';
+  if (e.key === 'Escape') { if (typing) a.blur(); else goBack(); return; }
+  if (typing || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || a?.type === 'range') return;
+  const items = [...$(panel).querySelectorAll(SELECTABLE)].filter((x) => x.offsetParent && !x.disabled);
+  if (!items.length) return;
+  e.preventDefault();
+  let i = items.indexOf(a);
+  if (i < 0) i = items.findIndex((x) => x.classList.contains('sel'));
+  i = i < 0 ? 0 : (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+  items[i].focus();
+  uiSound('uiMove');
+});
+// the mouse selects what it points at, like the keyboard does
+for (const b of document.querySelectorAll(SELECTABLE)) {
+  b.addEventListener('mouseenter', () => {
+    if (document.activeElement === b || !b.offsetParent) return;
+    b.focus({ preventScroll: true });
+    if (!b.classList.contains('row')) uiSound('uiMove');
+  });
+}
+
 // the key list lives in the settings now (Controls tab)
 {
   const keys = $('t-keys'), src = $('p-controls');
@@ -273,16 +378,18 @@ for (const id of WEAPON_ORDER) {
 const hand = $('gunHand');
 function syncHand() { for (const b of hand.children) b.classList.toggle('sel', b.dataset.v === target('gunHand').gunHand); }
 hand.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; target('gunHand').gunHand = b.dataset.v; syncHand(); changed(); });
+// reset: the shared placement goes back to the defaults; a weapon's own placement goes back to
+// that weapon's default (or the shared placement, for weapons without one)
 $('gun-reset').addEventListener('click', () => {
-  const t = target('gunX');
-  for (const k of GUN_KEYS) t[k] = t === settings ? DEFAULTS[k] : settings[k];
+  const t = target('gunX'), def = DEFAULT_GUNS[selGun];
+  for (const k of GUN_KEYS) t[k] = t === settings ? DEFAULTS[k] : def ? def[k] : settings[k];
   syncScope(); changed();
 });
 // the preview has the screen's aspect ratio and a shot of the selected map behind it
 function fitGunPreview() {
   const el = $('gun-preview');
   el.style.aspectRatio = `${window.innerWidth} / ${window.innerHeight}`;
-  el.style.backgroundImage = `url('/thumbs/${settings.map}.jpg')`;
+  el.style.backgroundImage = `url('/thumbs/${session?.opts?.map || settings.map}.jpg')`;
   previewCrosshair();
 }
 function previewCrosshair() {
@@ -370,37 +477,33 @@ $('setup-done').addEventListener('click', async () => {
 const syncBg = () => { $('bg-map').style.backgroundImage = `url('/thumbs/${settings.map}.jpg')`; };
 syncBg();
 
-// home: the map rotation as a strip of cards; a click picks the map for practice
-function renderHomeMaps() {
-  $('home-maps').innerHTML = '<div class="hm-head"><b>Map rotation</b><span>Pick one to practice on</span></div><div class="hm-list">' + Object.entries(MAPS).map(([key, m]) =>
-    `<button class="hm ${settings.map === key ? 'sel' : ''}" data-map="${key}" style="background-image:url('/thumbs/${key}.jpg')"><b>${m.def.name}</b><span>${m.tagline}</span></button>`).join('') + '</div>';
-}
-$('home-maps').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-map]');
-  if (!b) return;
-  audio.init();
-  settings.map = b.dataset.map; saveSettings(settings); syncBg(); renderHomeMaps();
-  for (const c of mapsEl.children) c.classList.toggle('sel', c.dataset.map === settings.map);
-  show('p-play');
-});
-renderHomeMaps();
-
-// map cards
+// practice: the picked map large, the others as a strip of thumbnails
 const mapsEl = $('maps');
 for (const [key, m] of Object.entries(MAPS)) {
   const card = document.createElement('button');
-  card.className = 'map-card' + (settings.map === key ? ' sel' : '');
+  card.className = 'pm-card';
   card.dataset.map = key;
-  card.innerHTML = `<div class="map-thumb" style="background-image:url('/thumbs/${key}.jpg')"></div><b>${m.def.name}</b><span>${m.tagline}</span><small>${m.players}</small>`;
-  card.addEventListener('click', () => {
-    settings.map = key; saveSettings(settings); fitGunPreview(); syncBg();
-    for (const c of mapsEl.children) c.classList.toggle('sel', c.dataset.map === key);
-  });
+  card.style.backgroundImage = `url('/thumbs/${key}.jpg')`;
+  card.innerHTML = `<b>${m.def.name}</b><small>${m.tagline.split(' · ')[0]}</small>`;
+  card.addEventListener('click', () => { settings.map = key; saveSettings(settings); fitGunPreview(); syncBg(); syncPlay(); uiSound('uiMove'); });
   mapsEl.appendChild(card);
+}
+function syncPlay() {
+  const m = MAPS[settings.map] || MAPS[Object.keys(MAPS)[0]];
+  for (const c of mapsEl.children) c.classList.toggle('sel', c.dataset.map === settings.map);
+  $('pm-hero').style.backgroundImage = `url('/thumbs/${settings.map}.jpg')`;
+  const [kind, ...rest] = m.tagline.split(' · ');
+  $('pm-tag').textContent = kind === 'Duel' ? 'Duel map' : 'Free for all map';
+  $('pm-name').textContent = m.def.name;
+  $('pm-desc').textContent = rest.join(' · ');
+  $('pm-players').textContent = m.players;
+  const duel = settings.mode === 'duel';
+  $('fight-sub').textContent = `${m.def.name} · ${duel ? '1 vs 1' : settings.bots + ' bot' + (settings.bots === 1 ? '' : 's')} · ${SKILLS[settings.skill]}${settings.instagib ? ' · Instagib' : ''}`;
+  $('play-note').textContent = settings.instagib ? 'Railgun only, one hit kills, no pickups.' : duel ? 'You against one bot.' : '';
 }
 
 $('start').addEventListener('click', () => startMatch());
-$('resume').addEventListener('click', () => { $('menu').classList.add('hidden'); session.resume(); });
+$('resume').addEventListener('click', () => { $('menu').classList.add('hidden'); if (previews) previews.detach(); session.resume(); });
 $('pause-settings').addEventListener('click', () => { settingsReturn = 'p-pause'; show('p-settings'); });
 $('restart').addEventListener('click', () => startMatch());
 $('quit').addEventListener('click', () => {

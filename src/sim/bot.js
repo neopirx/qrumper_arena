@@ -8,6 +8,8 @@ export function makeBot(skill) {
   return (player, game) => new Bot(player, game, skill);
 }
 
+// standard normal sample
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
 const RANGES = { mg: [0, 600], sg: [0, 220], rl: [140, 520], gl: [120, 420], rg: [450, 2000] };
 
 class Bot {
@@ -15,14 +17,19 @@ class Bot {
     this.p = p; this.game = game;
     this.skill = skill;
     const s = (skill - 1) / 4; // 0..1
+    const ns = 1 - s;
     this.s = s;
-    this.reaction = 0.45 - 0.3 * s;
-    this.aimError = 7 - 5.5 * s;        // degrees
-    this.turnSpeed = 280 + 900 * s;     // deg/s
-    this.lagTime = 0.18 - 0.12 * s;
+    // the low end is shaped to be genuinely beatable: slow to react, slow to turn, behind on
+    // moving targets and unsure where they are; the top end is unchanged
+    this.reaction = 0.15 + 0.6 * ns ** 1.3;     // s: 0.75 · 0.55 · 0.39 · 0.25 · 0.15
+    this.aimError = 0.5 + 4.5 * ns ** 1.6;      // degrees (1 sigma) of misjudged target position
+    this.aimFloor = 0.35 + 0.4 * ns;            // tracking never sharpens the misjudgement below this
+    this.lead = 0.35 + 0.65 * s;                // how much of the target's motion is anticipated
+    this.turnSpeed = 200 + 980 * s;             // deg/s
+    this.lagTime = 0.06 + 0.24 * ns;            // perception delay on the target's position
     this.fovHalf = 60 + 30 * s;
+    this.off = [0, 0]; this.offT = [0, 0]; this.nextOff = 0;
     this.reset();
-    this.ph = [Math.random() * 10, Math.random() * 10, Math.random() * 10];
   }
 
   reset() {
@@ -305,7 +312,8 @@ class Bot {
       const h = e.history;
       let st = h.length ? h[h.length - 1] : { o: e.ps.origin, v: e.ps.velocity };
       for (let i = h.length - 1; i >= 0; i--) if (t - h[i].t >= this.lagTime) { st = h[i]; break; }
-      const lag = Math.min(this.lagTime, t - (st.t ?? t));
+      // weaker bots only partly extrapolate the delayed view, so they trail strafing targets
+      const lag = Math.min(this.lagTime, t - (st.t ?? t)) * this.lead;
       const tp = [st.o[0] + st.v[0] * lag, st.o[1] + st.v[1] * lag, st.o[2] + st.v[2] * lag];
       const w = WEAPONS[p.weapon];
       let aim = [tp[0], tp[1] + 8, tp[2]];
@@ -313,7 +321,8 @@ class Bot {
       if (w.speed) {
         let tt = d / w.speed;
         for (let k = 0; k < 2; k++) {
-          aim = [tp[0] + st.v[0] * tt, tp[1] + st.v[1] * tt, tp[2] + st.v[2] * tt];
+          const lt = tt * this.lead;
+          aim = [tp[0] + st.v[0] * lt, tp[1] + st.v[1] * lt, tp[2] + st.v[2] * lt];
           if (!e.ps.onGround) aim[1] -= 400 * tt * tt;
           tt = Math.hypot(aim[0] - me[0], aim[1] - me[1], aim[2] - me[2]) / w.speed;
         }
@@ -321,22 +330,35 @@ class Bot {
         if (w.id === 'gl') aim[1] += 400 * tt * tt - 0.2 * Math.hypot(aim[0] - me[0], aim[2] - me[2]); // lob: undo gravity and the launch tilt
       }
       const adx = aim[0] - me[0], ady = aim[1] - me[1], adz = aim[2] - me[2];
-      desiredYaw = yawTo(adx, adz);
-      desiredPitch = Math.atan2(ady, Math.hypot(adx, adz)) / DEG;
-      // aim wobble that settles while tracking
-      const settle = Math.max(0.35, 1 - this.trackTime * 0.8);
+      // misjudgement: where the bot *believes* the target is. It drifts to a fresh guess every
+      // fraction of a second and after every shot, narrows while tracking (never fully for weak
+      // bots) and grows with the target's speed. The bot aims and fires at its belief, so the
+      // error turns into real misses instead of just a later shot.
       const targetSpeed = Math.hypot(e.ps.velocity[0], e.ps.velocity[2]);
-      const amp = this.aimError * settle * (0.6 + targetSpeed / 500);
-      desiredYaw += amp * Math.sin(t * 2.3 + this.ph[0]) * Math.cos(t * 0.7 + this.ph[1]);
-      desiredPitch += amp * 0.6 * Math.sin(t * 1.9 + this.ph[2]);
+      if (t >= this.nextOff) {
+        const settle = Math.max(this.aimFloor, 1 - this.trackTime * 0.6);
+        const sigma = this.aimError * settle * (0.6 + targetSpeed / 450);
+        this.offT = [gauss() * sigma, gauss() * sigma * 0.6];
+        this.nextOff = t + 0.3 + Math.random() * 0.5;
+      }
+      const follow = Math.min(1, dt * (3 + 6 * this.s));
+      this.off[0] += (this.offT[0] - this.off[0]) * follow;
+      this.off[1] += (this.offT[1] - this.off[1]) * follow;
+      const trueYaw = yawTo(adx, adz), truePitch = Math.atan2(ady, Math.hypot(adx, adz)) / DEG;
+      desiredYaw = trueYaw + this.off[0];
+      desiredPitch = truePitch + this.off[1];
 
-      // fire decision
-      const errYaw = Math.abs(angleDiff(cmd.yaw, yawTo(adx, adz)));
-      const errPitch = Math.abs(cmd.pitch - Math.atan2(ady, Math.hypot(adx, adz)) / DEG);
+      // fire decision: the crosshair is on the believed target
+      const errYaw = Math.abs(angleDiff(cmd.yaw, desiredYaw));
+      const errPitch = Math.abs(cmd.pitch - desiredPitch);
       const tol = Math.atan2(w.id === 'rg' ? 14 : w.splash ? 40 : 24, d) / DEG + (w.id === 'mg' ? 2 : 0.5);
       const reacted = t - this.enemySince > this.reaction;
       const selfRisk = w.splash && d < (w.id === 'gl' ? 160 : 110);
-      if (reacted && errYaw < tol && errPitch < tol * 1.3 && !selfRisk) cmd.attack = true;
+      if (reacted && errYaw < tol && errPitch < tol * 1.3 && !selfRisk) {
+        cmd.attack = true;
+        // a slow weapon's next shot is a new judgement
+        if (w.rate >= 700 && p.weaponTime <= 0) this.nextOff = t;
+      }
 
       // dodge movement
       if (t >= this.strafeUntil) {

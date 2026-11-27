@@ -15,10 +15,8 @@
     <div class="menu-bg"><div class="bg-map" id="bg-map"></div><div class="bg-grade"></div></div>
     <div class="menu-wrap" id="menu-wrap">
       <header class="topbar">
-        <div class="logo brand">QRUMPER</div>
-        <nav class="mainnav" id="mainnav">
-          <button data-go="p-main">Home</button><button data-go="p-play">Practice</button><button data-go="p-mp">Multiplayer</button><button data-go="p-profile">Fighter</button><button data-go="p-settings">Settings</button>
-        </nav>
+        <button class="back" id="menu-back" title="Back (Esc)"><span class="arr"></span><kbd>Esc</kbd></button>
+        <div class="crumb" id="crumb"><small>Main menu</small><b id="crumb-title"></b></div>
         <button class="chip" id="chip" data-go="p-profile" title="Your fighter">
           <span class="lv" id="chip-lv">1</span>
           <span class="chip-txt"><b id="chip-name">Player</b><small id="chip-sub">Level 1</small><span class="xpbar"><i id="chip-xp"></i></span></span>
@@ -28,41 +26,50 @@
       <div class="menu-inner">
         <div class="panel home" id="p-main">
           <div class="home-left">
-            <div class="kicker"><i></i>Arena shooter · Free for all</div>
-            <h1 class="home-title">Ready<br />to <em>frag?</em></h1>
-            <p class="home-sub">Strafe-jump, rocket-jump and rail your way to the top of the board. CPMA movement, five weapons, no mercy.</p>
-            <div class="modes">
-              <button class="mode primary" data-go="p-play"><span class="mi">&#9654;</span><span class="mt"><b>Practice</b><span>Free for all or duel against bots</span></span></button>
-              <button class="mode" data-go="p-mp"><span class="mi">&#9673;</span><span class="mt"><b>Multiplayer</b><span>Create a room or join friends</span></span></button>
-            </div>
+            <div class="logo home-logo">QRUMPER</div>
+            <div class="home-kicker"><i></i>Arena</div>
+            <nav class="mmenu" id="mmenu">
+              <button class="mi" data-go="p-play"><b>Play</b><span>Practice against bots · free for all or duel</span></button>
+              <button class="mi" data-go="p-mp"><b>Multiplayer</b><span>Create a room or join your friends</span></button>
+              <button class="mi" data-go="p-profile"><b>Fighter</b><span>Name, character, colour and career</span></button>
+              <button class="mi" data-go="p-settings"><b>Settings</b><span>Controls, weapons, graphics and HUD</span></button>
+            </nav>
             <div class="stats" id="home-stats"></div>
           </div>
           <div class="home-stage" id="home-stage"><div class="stage-floor"></div><div class="champ-name" id="champ-name"></div><div class="champ-card"><small>Your fighter</small><b id="champ-blurb-name"></b><span class="champ-blurb" id="champ-blurb"></span><button class="btn small" data-go="p-profile">Change fighter</button></div></div>
-          <div class="home-maps" id="home-maps"></div>
         </div>
 
-        <div class="panel hidden" id="p-play">
-          <h2>Practice</h2>
-          <div class="maps" id="maps"></div>
-          <div class="row"><label>Mode</label><select id="mode"><option value="ffa">Free For All</option><option value="duel">Duel · 1 vs 1</option></select><span></span></div>
-          <div class="row" id="bots-row"><label>Bots</label><input type="range" id="bots" min="1" max="11" /><output id="bots-v"></output></div>
-          <div class="row"><label>Bot skill</label><input type="range" id="skill" min="1" max="5" /><output id="skill-v"></output></div>
-          <div class="row"><label>Fraglimit</label><input type="range" id="fraglimit" min="5" max="50" step="5" /><output id="fraglimit-v"></output></div>
-          <div class="row"><label>Timelimit</label><input type="range" id="timelimit" min="0" max="30" step="5" /><output id="timelimit-v"></output></div>
-          <div class="row check"><label><input type="checkbox" id="instagib" /> Instagib · railgun only, one hit kills</label><span></span></div>
-          <div class="row check"><label><input type="checkbox" id="doubleJump" /> CPM double jump</label><span></span></div>
-          <div class="actions"><button class="btn" data-go="p-main">Back</button><button class="btn primary" id="start">Fight</button></div>
+        <div class="panel hidden sheet" id="p-play" data-title="Play">
+          <div class="play">
+            <div class="play-map">
+              <div class="pm-hero" id="pm-hero"><div class="pm-info"><small id="pm-tag"></small><b id="pm-name"></b><span id="pm-desc"></span><em id="pm-players"></em></div></div>
+              <div class="pm-strip" id="maps"></div>
+            </div>
+            <div class="play-side">
+              <h3>Match</h3>
+              <div class="opts">
+                <div class="row step"><label>Mode</label><select id="mode"><option value="ffa">Free For All</option><option value="duel">Duel · 1 vs 1</option></select></div>
+                <div class="row step" id="bots-row"><label>Bots</label><input type="range" id="bots" min="1" max="11" /><output id="bots-v"></output></div>
+                <div class="row step"><label>Bot skill</label><input type="range" id="skill" min="1" max="5" /><output id="skill-v"></output></div>
+                <div class="row step"><label>Fraglimit</label><input type="range" id="fraglimit" min="5" max="50" step="5" /><output id="fraglimit-v"></output></div>
+                <div class="row step"><label>Timelimit</label><input type="range" id="timelimit" min="0" max="30" step="5" /><output id="timelimit-v"></output></div>
+                <div class="row step"><label>Instagib</label><input type="checkbox" id="instagib" /></div>
+                <div class="row step"><label>Double jump</label><input type="checkbox" id="doubleJump" /></div>
+              </div>
+              <p class="note small" id="play-note"></p>
+              <button class="fight" id="start"><b>Fight</b><small id="fight-sub"></small></button>
+            </div>
+          </div>
         </div>
 
-        <div class="panel hidden" id="p-mp">
-          <h2>Multiplayer</h2>
+        <div class="panel hidden" id="p-mp" data-title="Multiplayer">
           <div class="mp-status" id="mp-status">Connecting…</div>
           <div class="rooms" id="rooms"></div>
           <div class="mp-create"><input type="text" id="room-name" maxlength="28" placeholder="Room name" spellcheck="false" autocomplete="off" /><button class="btn primary" id="room-create">Create room</button></div>
-          <div class="actions"><button class="btn" data-go="p-main">Back</button><button class="btn" id="rooms-refresh">Refresh</button></div>
+          <div class="actions"><span></span><button class="btn" id="rooms-refresh">Refresh</button></div>
         </div>
 
-        <div class="panel hidden wide" id="p-lobby">
+        <div class="panel hidden wide" id="p-lobby" data-title="Room">
           <div class="lobby-head"><h2 id="lobby-name">Room</h2><span class="tag" id="lobby-state"></span></div>
           <div class="lobby">
             <div class="lobby-col">
@@ -87,7 +94,7 @@
           <div class="actions"><button class="btn" id="lobby-leave">Leave room</button><button class="btn primary" id="lobby-start">Start match</button></div>
         </div>
 
-        <div class="panel hidden" id="p-profile">
+        <div class="panel hidden" id="p-profile" data-title="Fighter">
           <div class="phead"><h2 id="profile-title">Fighter</h2><span class="psub setup-only">Pick a name and a fighter. Your XP, levels and stats are saved to this profile.</span></div>
           <div class="profile">
             <div class="profile-stage" id="profile-stage"><div class="stage-floor"></div><div class="who" id="profile-who"></div><div class="drag-hint">Drag to turn</div></div>
@@ -102,11 +109,10 @@
               <div class="career" id="career"></div></div>
             </div>
           </div>
-          <div class="actions"><button class="btn not-setup" data-go="p-main">Back</button><span class="setup-only"></span><button class="btn primary setup-only" id="setup-done">Enter the arena</button></div>
+          <div class="actions setup-only"><span></span><button class="btn primary" id="setup-done">Enter the arena</button></div>
         </div>
 
-      <div class="panel hidden" id="p-settings">
-        <div class="phead"><h2>Settings</h2></div>
+      <div class="panel hidden" id="p-settings" data-title="Settings">
         <div class="settings-body">
         <div class="tabs" id="settings-tabs">
           <button data-tab="t-game" class="sel"><b>Game</b><small>Mouse, zoom, audio</small></button><button data-tab="t-weapon"><b>Weapons</b><small>Viewmodel &amp; crosshair</small></button><button data-tab="t-gfx"><b>Graphics</b><small>Quality &amp; lighting</small></button><button data-tab="t-hud"><b>HUD</b><small>Size &amp; readouts</small></button><button data-tab="t-keys"><b>Controls</b><small>Keys &amp; movement</small></button>
@@ -174,7 +180,7 @@
         <div class="tab hidden" id="t-hud">
           <div class="row"><label>HUD size</label><input type="range" id="hudScale" min="0.7" max="1.5" step="0.05" /><output id="hudScale-v"></output></div>
           <div class="row check"><label><input type="checkbox" id="speedometer" /> Speedometer</label><label><input type="checkbox" id="showFps" /> Show FPS</label></div>
-          <div class="row check"><label><input type="checkbox" id="weaponBarAlways" /> Always show weapon bar</label><span></span></div>
+          <div class="row check"><label><input type="checkbox" id="weaponBarAlways" /> Always show weapon bar</label><label><input type="checkbox" id="dmgNumbers" /> Damage numbers</label></div>
         </div>
         <div class="tab hidden" id="t-keys"></div>
         </div>
@@ -200,14 +206,17 @@
         </div>
 
         <div class="panel hidden" id="p-pause">
-          <h2>Paused</h2>
+          <div class="pause-head"><small id="pause-map"></small><h2>Paused</h2></div>
           <p class="note online-only">You're online: the match keeps running while this menu is open.</p>
-          <button class="btn primary" id="resume">Resume</button>
-          <button class="btn" id="pause-settings">Settings</button>
-          <button class="btn offline-only" id="restart">Restart match</button>
-          <button class="btn" id="quit">Quit to menu</button>
+          <nav class="mmenu small">
+            <button class="mi" id="resume"><b>Resume</b></button>
+            <button class="mi" id="pause-settings"><b>Settings</b></button>
+            <button class="mi offline-only" id="restart"><b>Restart match</b></button>
+            <button class="mi" id="quit"><b>Quit to menu</b></button>
+          </nav>
         </div>
       </div>
+      <footer class="hints" id="hints"><span><kbd>&uarr;</kbd><kbd>&darr;</kbd> Select</span><span class="lr"><kbd>&larr;</kbd><kbd>&rarr;</kbd> Change</span><span><kbd>Enter</kbd> Confirm</span><span class="esc"><kbd>Esc</kbd> Back</span></footer>
     </div>
     <div class="toast hidden" id="toast"></div>
   </div>

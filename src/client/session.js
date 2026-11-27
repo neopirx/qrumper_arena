@@ -746,7 +746,7 @@ export class Session {
     this.viewWeapon.render(R, aspect, me.alive && gunFor(this.settings, this.viewWeapon.current).gunVisible && g.state !== 'intermission');
     if (this.settings.graphics?.bloom) this.glow.apply(0.55);
 
-    this.hud.view = { pos: me.ps.origin, yaw: this.input.yaw };
+    this.hud.view = { pos: me.ps.origin, yaw: this.input.yaw, dyaw, dpitch, vy: v[1], onGround: me.ps.onGround };
     this.hud.update(dt, g, me, this.fps, speed);
     this.hud.setLocked(this.input.locked || this.paused);
     this.hud.scores((this.input.is('scores') && !this.paused) || g.state === 'intermission', g, me, !!this.net);

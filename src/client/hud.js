@@ -1,6 +1,9 @@
-// HTML overlay HUD, laid out like Quake 3's: one status bar of big outlined numbers at the bottom
-// (ammo · health · armor, each with its icon), score boxes bottom right, a weapon bar that pops up
-// on switch, pickups bottom left, obituaries top left. Numbers use Q3's colour code:
+// HTML overlay HUD in the arena-shooter mould: health and armor bottom left and ammo bottom right
+// as slanted plates with big numbers and bars (a "ghost" segment shows what a hit just took), the
+// match bar top centre (your score, the clock, the leader or runner-up), the kill feed top right,
+// damage numbers by the crosshair and a weapon bar that pops up on switch. The plates react: a hit
+// shakes and flashes them, healing pulses them, every shot ticks the ammo count, and the clusters
+// sway a little against mouse turns, jumps and landings. Numbers keep Q3's colour code:
 // gold = normal, red = low, white = above 100, grey = empty.
 import { WEAPONS, WEAPON_ORDER } from '../sim/defs.js';
 import { INF_AMMO, modeName } from '../sim/game.js';
@@ -59,17 +62,25 @@ export class Hud {
         <div class="hud-sub" id="sub"></div>
         <div class="hud-awards" id="awards"></div>
         <div class="hud-badges" id="badges"></div>
-        <div class="hud-xp" id="xp"></div>
-        <div class="hud-feed" id="feed"></div>
-        <div class="hud-top-right"><div id="timer" class="hud-timer"></div><div class="hud-fps" id="fps"></div></div>
+        <div class="hud-dmgnums" id="dmgnums"></div>
+        <div class="hud-match" id="match">
+          <div class="mb me" id="mbme"><b id="mbmes">0</b><small id="mbmen"></small><i class="prog"><i id="mbmep"></i></i></div>
+          <div class="mt"><b id="timer"></b><small id="mtsub"></small></div>
+          <div class="mb other" id="mbot"><b id="mbots">0</b><small id="mbotn"></small><i class="prog"><i id="mbotp"></i></i></div>
+        </div>
+        <div class="hud-right"><div class="hud-feed" id="feed"></div><div class="hud-xp" id="xp"></div></div>
+        <div class="hud-fps" id="fps"></div>
         <div class="hud-pickup" id="pickup"></div>
         <div class="hud-wbar" id="weapons"></div>
-        <div class="hud-status">
-          <div class="hud-stat" id="ambox"><span class="ico wicon" id="amicon"></span><span class="val" id="am">100</span></div>
-          <div class="hud-stat" id="hpbox"><span class="ico">${ICON_HEALTH}</span><span class="val" id="hp">100</span></div>
-          <div class="hud-stat" id="arbox"><span class="ico">${ICON_ARMOR}</span><span class="val" id="ar">0</span></div>
+        <div class="hud-vitals sway" id="vitals">
+          <div class="vit hp" id="hpbox"><span class="ico">${ICON_HEALTH}</span><span class="val" id="hp">100</span><div class="vbar"><i class="ghost" id="hpghost"></i><i class="fill" id="hpfill"></i><i class="over" id="hpover"></i></div></div>
+          <div class="vit ar" id="arbox"><span class="ico">${ICON_ARMOR}</span><span class="val" id="ar">0</span><div class="vbar"><i class="ghost" id="arghost"></i><i class="fill" id="arfill"></i><i class="over" id="arover"></i></div></div>
         </div>
-        <div class="hud-scorebox" id="scorebox"></div>
+        <div class="hud-ammo sway" id="ambox">
+          <div class="am-top"><span class="val" id="am">100</span><span class="wicon" id="amicon"></span></div>
+          <div class="vbar"><i class="fill" id="amfill"></i></div>
+          <div class="am-name" id="amname"></div>
+        </div>
         <div class="hud-death hidden" id="death"></div>
         <div class="hud-click hidden" id="click">Click to play</div>
       </div>
@@ -84,6 +95,8 @@ export class Hud {
     this.badges = [];
     this.xpLines = [];
     this.last = {};
+    this.ghost = { hp: 100, ar: 0, hpT: 0, arT: 0 };
+    this.sway = { x: 0, y: 0, vx: 0, vy: 0 };
     this.applySettings();
   }
 
@@ -155,7 +168,7 @@ export class Hud {
     this.xpLines.push({ html: `<b>+${amount} XP</b> ${esc(reason)}`, t: 4 });
     if (this.xpLines.length > 4) this.xpLines.shift();
   }
-  feedLine(html) { this.feed.push({ html, t: 5, me: false }); if (this.feed.length > 5) this.feed.shift(); }
+  feedLine(html) { this.feed.push({ html, t: 5, life: 5, me: false }); if (this.feed.length > 5) this.feed.shift(); }
   // railgun zoom: darkened edges and a fine reticle ring
   setZoom(k) {
     const v = Math.round(k * 100) / 100;
@@ -202,7 +215,31 @@ export class Hud {
   }
 
   showWeapons() { this.wbarT = 1.8; }
-  hit(dmg) { const el = this.$('hitmark'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); this.hitT = 0.15; el.style.setProperty('--hs', dmg >= 80 ? 1.6 : dmg >= 40 ? 1.25 : 1); }
+  hit(dmg) {
+    const el = this.$('hitmark'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show'); this.hitT = 0.15; el.style.setProperty('--hs', dmg >= 80 ? 1.6 : dmg >= 40 ? 1.25 : 1);
+    if (this.settings.dmgNumbers !== false) this.dmgNumber(dmg);
+  }
+  // damage numbers: hits landing close together (a shotgun blast, a stream of bullets, a combo)
+  // add up into one number that pops again with each hit, then floats up and fades
+  dmgNumber(dmg) {
+    const now = performance.now(), d = this.dn;
+    let el;
+    if (d && now - d.at < 650 && d.el.isConnected) { d.v += dmg; d.at = now; el = d.el; } else {
+      el = document.createElement('div');
+      el.style.setProperty('--dx', (Math.random() * 24 - 12).toFixed(1));
+      el.addEventListener('animationend', () => el.remove());
+      this.$('dmgnums').appendChild(el);
+      this.dn = { el, v: dmg, at: now };
+      while (this.$('dmgnums').children.length > 4) this.$('dmgnums').firstChild.remove();
+    }
+    const v = Math.round(this.dn.v);
+    el.textContent = v;
+    el.className = v >= 100 ? 't4' : v >= 50 ? 't3' : v >= 25 ? 't2' : 't1';
+    el.style.animation = 'none'; void el.offsetWidth; el.style.animation = '';
+  }
+  // restart a one-shot CSS animation class on an element
+  kick(id, cls) { const el = this.$(id); el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+  width(id, frac) { const v = (Math.max(0, Math.min(1, frac)) * 100).toFixed(1) + '%'; if (this.last[id + 'w'] !== v) { this.last[id + 'w'] = v; this.$(id).style.width = v; } }
   // incoming damage: a red edge flash scaled by the hit, plus an arc around the crosshair pointing
   // at where the shot came from. Arcs keep the world position, so they swing as you turn toward
   // the shooter; hits from the same spot merge into one thicker, wider arc.
@@ -220,7 +257,7 @@ export class Hud {
     const v = `<span style="color:${victim.colorCss}">${esc(victim.name)}</span>`;
     const w = MOD_WEAPON[mod];
     const icon = w ? `<span class="mod">${this.icon(w)}</span>` : `<span class="modtxt">${MOD_TEXT[mod] || mod}</span>`;
-    this.feed.push({ html: killer ? `${k} ${icon} ${v}` : `${v} ${icon}`, t: 6, me: isMe });
+    this.feed.push({ html: killer ? `${k} ${icon} ${v}` : `${v} ${icon}`, t: 6, life: 6, me: isMe });
     if (this.feed.length > 5) this.feed.shift();
   }
 
@@ -242,16 +279,46 @@ export class Hud {
     // per-weapon crosshair follows the weapon in hand
     const xw = me.switchTo || me.weapon;
     if (xw !== this.xhWeapon) { this.xhWeapon = xw; applyCrosshair(this.$('xhair'), xhairFor(this.settings, xw)); }
-    // ---- status bar ----
-    const hp = Math.max(0, me.health), ar = me.armor;
+    // ---- health & armor: number, bar (0-100, then an overcharge layer to 200) and a ghost of
+    // what was just lost that holds for a moment and then drains ----
+    const hp = Math.max(0, me.health), ar = me.armor, G = this.ghost;
+    const prevHp = this.last.hpv, prevAr = this.last.arv;
+    if (prevHp != null && me.alive) {
+      if (hp < prevHp) { this.kick('hpbox', 'hurt'); G.hpT = 0.45; } else if (hp > prevHp && prevHp > 0) this.kick('hpbox', 'gain');
+      if (ar < prevAr) { this.kick('arbox', 'hurt'); G.arT = 0.45; } else if (ar > prevAr) this.kick('arbox', 'gain');
+    }
+    this.last.hpv = hp; this.last.arv = ar;
+    G.hpT -= dt; G.arT -= dt;
+    G.hp = hp >= G.hp ? hp : G.hpT > 0 ? G.hp : Math.max(hp, G.hp - dt * 160);
+    G.ar = ar >= G.ar ? ar : G.arT > 0 ? G.ar : Math.max(ar, G.ar - dt * 160);
     this.set('hp', 'text', hp);
-    this.set('hpbox', 'class', 'hud-stat ' + (hp <= 25 ? 'low' : hp > 100 ? 'over' : ''));
+    this.set('hpbox', 'class', 'vit hp ' + (hp <= 25 ? 'low' : hp > 100 ? 'over' : ''));
+    this.width('hpfill', hp / 100); this.width('hpover', (hp - 100) / 100); this.width('hpghost', G.hp / 100);
     this.set('ar', 'text', ar);
-    this.set('arbox', 'class', 'hud-stat ' + (ar <= 0 ? 'zero' : ar > 100 ? 'over red' : 'yellow'));
-    const wid = me.weapon, ammo = me.ammo[wid] ?? 0;
-    this.set('am', 'text', ammo >= INF_AMMO ? '∞' : ammo);
-    this.set('ambox', 'class', 'hud-stat ' + (ammo <= 0 ? 'low empty' : ammo <= LOW_AMMO[wid] ? 'low' : ''));
-    this.set('amicon', 'html', this.icon(wid));
+    this.set('arbox', 'class', 'vit ar ' + (ar <= 0 ? 'zero' : ar > 100 ? 'over red' : 'yellow'));
+    this.width('arfill', ar / 100); this.width('arover', (ar - 100) / 100); this.width('arghost', G.ar / 100);
+    // ---- ammo: ticks with every shot, swaps its icon on a switch ----
+    const wid = me.weapon, ammo = me.ammo[wid] ?? 0, inf = ammo >= INF_AMMO;
+    if (this.last.amw === wid && ammo < this.last.amv) this.kick('am', 'tick');
+    if (this.last.amw !== wid) { this.set('amicon', 'html', this.icon(wid)); this.kick('amicon', 'swap'); this.set('amname', 'text', WEAPONS[wid].name); this.$('ambox').style.setProperty('--wc', WCOL(wid)); }
+    this.last.amw = wid; this.last.amv = ammo;
+    this.set('am', 'text', inf ? '∞' : ammo);
+    this.set('ambox', 'class', 'hud-ammo sway ' + (ammo <= 0 ? 'low empty' : ammo <= LOW_AMMO[wid] ? 'low' : ''));
+    this.width('amfill', inf ? 1 : ammo / WEAPONS[wid].maxAmmo);
+    // ---- sway: the clusters lag against turns and vertical motion and bounce on landings ----
+    const sw = this.sway, v = this.view, k = this.settings.camMotion ?? 1;
+    if (v && k > 0) {
+      const rate = (v.dyaw || 0) / Math.max(dt, 1e-3);
+      const tx = Math.max(-12, Math.min(12, -rate * 0.02)) * k;
+      const ty = (v.onGround ? 0 : Math.max(-9, Math.min(9, -(v.vy || 0) * 0.012))) * k;
+      if (v.onGround && !this.wasGround && (this.lastVy || 0) < -250) sw.vy += Math.min(220, -this.lastVy * 0.3) * k;
+      this.wasGround = v.onGround; this.lastVy = v.vy;
+      const K = 140, C = 2 * Math.sqrt(K) * 0.55, h = Math.min(dt, 0.05);
+      sw.vx += ((tx - sw.x) * K - sw.vx * C) * h; sw.x += sw.vx * h;
+      sw.vy += ((ty - sw.y) * K - sw.vy * C) * h; sw.y += sw.vy * h;
+    } else { sw.x = sw.y = 0; }
+    const sx = sw.x.toFixed(1), sy = sw.y.toFixed(1);
+    if (this.last.sx !== sx || this.last.sy !== sy) { this.last.sx = sx; this.last.sy = sy; this.root.style.setProperty('--sx', sx + 'px'); this.root.style.setProperty('--sy', sy + 'px'); }
     // low ammo warning under the crosshair
     this.set('ammowarn', 'text', !me.alive ? '' : ammo <= 0 ? 'OUT OF AMMO' : ammo <= LOW_AMMO[wid] ? 'LOW AMMO' : '');
 
@@ -266,17 +333,30 @@ export class Hud {
     this.set('weapons', 'html', wl);
     this.set('weapons', 'class', 'hud-wbar' + ((this.wbarT > 0 || this.settings.weaponBarAlways) && me.alive ? ' show' : ''));
 
-    // ---- timer & score boxes ----
+    // ---- match bar: you · the clock · the leader (or, when you lead, the runner-up) ----
     const tl = g.state === 'warmup' ? g.timelimit : g.timeLeft();
     const mm = Math.floor(tl / 60), ss = Math.floor(tl % 60);
-    this.set('timer', 'text', g.timelimit > 0 ? `${mm}:${String(ss).padStart(2, '0')}` : '');
+    this.set('timer', 'text', g.timelimit > 0 ? `${mm}:${String(ss).padStart(2, '0')}` : '—');
+    this.set('match', 'class', 'hud-match' + (g.timelimit > 0 && g.state === 'playing' && tl <= 60 ? ' late' : ''));
     const rank = g.ranking();
     const pos = rank.indexOf(me);
-    // Q3: your box plus the leader's (or, when you lead, the runner-up's)
     const other = pos === 0 ? rank[1] : rank[0];
-    const box = (p, mine) => p ? `<div class="sb ${mine ? 'me' : ''}" style="--pc:${p.colorCss}"><b>${p.frags}</b><small>${mine ? ORD(pos + 1) : esc(p.name)}</small></div>` : '';
-    const boxes = pos === 0 ? box(me, true) + box(other, false) : box(other, false) + box(me, true);
-    this.set('scorebox', 'html', `<div class="fl">Fraglimit ${g.fraglimit}</div><div class="sbs">${boxes}</div>`);
+    const lead = other ? me.frags - other.frags : 0;
+    this.set('mtsub', 'text', g.state === 'warmup' ? 'Warmup' : !other ? `Fraglimit ${g.fraglimit}` : lead > 0 ? `Leading +${lead}` : lead < 0 ? `Behind ${lead}` : 'Tied');
+    if (this.last.myFrags !== undefined && me.frags > this.last.myFrags) this.kick('mbme', 'up');
+    this.last.myFrags = me.frags;
+    this.set('mbmes', 'text', me.frags);
+    this.set('mbmen', 'text', `${ORD(pos + 1)} · ${me.name}`);
+    this.set('mbme', 'class', 'mb me' + (pos === 0 && lead > 0 ? ' lead' : ''));
+    if (this.last.mePc !== me.colorCss) { this.last.mePc = me.colorCss; this.$('mbme').style.setProperty('--pc', me.colorCss); }
+    this.width('mbmep', g.fraglimit ? me.frags / g.fraglimit : 0);
+    this.set('mbot', 'class', 'mb other' + (other ? '' : ' none'));
+    if (other) {
+      this.set('mbots', 'text', other.frags);
+      this.set('mbotn', 'text', `${pos === 0 ? '2nd' : '1st'} · ${other.name}`);
+      if (this.last.otPc !== other.colorCss) { this.last.otPc = other.colorCss; this.$('mbot').style.setProperty('--pc', other.colorCss); }
+      this.width('mbotp', g.fraglimit ? other.frags / g.fraglimit : 0);
+    }
 
     this.set('speed', 'text', Math.round(speed) + ' ups');
     if (this.settings.showFps) this.set('fps', 'text', fps + ' fps');
@@ -289,7 +369,7 @@ export class Hud {
     this.$('damage').style.opacity = this.damageT;
     for (const f of this.feed) f.t -= dt;
     this.feed = this.feed.filter((f) => f.t > 0);
-    this.set('feed', 'html', this.feed.map((f) => `<div class="${f.me ? 'me' : ''}">${f.html}</div>`).join(''));
+    this.set('feed', 'html', this.feed.map((f) => `<div class="${f.me ? 'me' : ''}${f.t > f.life - 0.3 ? ' new' : ''}">${f.html}</div>`).join(''));
     this.badgeGap = (this.badgeGap || 0) - dt;
     if (this.badgeQueue?.length && this.badgeGap <= 0) { this.revealBadge(); this.badgeGap = BADGE_GAP; }
     for (const b of this.badges) b.t -= dt;
@@ -305,7 +385,6 @@ export class Hud {
     for (let i = 0; i < els.length; i++) els[i].classList.toggle('out', this.awards[i].t < 0.5);
     for (const d of this.dirs) { d.t -= dt; d.age += dt; }
     this.dirs = this.dirs.filter((d) => d.t > 0);
-    const v = this.view;
     this.$('dirs').innerHTML = !v || !me.alive ? '' : this.dirs.map((d) => dirArc(d, angleDiff(yawTo(d.p[0] - v.pos[0], d.p[2] - v.pos[2]), v.yaw))).join('');
     // low health: a slow red pulse at the screen edge
     const lhp = me.alive ? me.health : 100;

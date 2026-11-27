@@ -27,17 +27,19 @@ export const DEFAULTS = {
   gunVisible: true,
   bob: true,
   gunHand: 'right',      // right | left | center
-  gunX: 0,               // + moves right on screen
-  gunY: 0,               // + moves up
-  gunZ: 0,               // + pushes the gun away from the camera
-  gunSize: 1,
+  gunX: 3.75,            // + moves right on screen
+  gunY: -5,              // + moves up
+  gunZ: -12.5,           // - pulls the gun toward the camera, + pushes it away
+  gunSize: 0.88,
   gunTilt: 0,            // degrees, + turns the muzzle in toward the crosshair
   // per-weapon overrides: { mg: { gun: { gunX, ... , gunVisible }, xhair: { crosshair, crosshairColor, crosshairSize } } }
-  perWeapon: {},
+  perWeapon: {},         // filled from DEFAULT_GUNS on first load
+  viewmodelV: 2,
   // HUD
   hudScale: 1,
   speedometer: true,
   weaponBarAlways: false,
+  dmgNumbers: true,      // damage you deal pops up by the crosshair
   showFps: false,
   hitSounds: true,
   gore: true,            // blood, gibs and blood decals
@@ -56,6 +58,14 @@ export const DEFAULTS = {
 };
 export const GUN_KEYS = ['gunHand', 'gunX', 'gunY', 'gunZ', 'gunSize', 'gunTilt'];
 export const PER_GUN_KEYS = [...GUN_KEYS, 'gunVisible'];
+// the default viewmodel: the shared placement above, plus these weapons sitting on their own
+const gun = (gunX, gunY, gunZ, gunSize) => ({ gunHand: 'right', gunX, gunY, gunZ, gunSize, gunTilt: 0, gunVisible: true });
+export const DEFAULT_GUNS = {
+  sg: gun(3.75, -5, -22, 1.04),
+  rl: gun(3.75, -4, -22, 0.9),
+  rg: gun(3.75, -5, -12.25, 0.94),
+};
+const OLD_GUN = { gunHand: 'right', gunX: 0, gunY: 0, gunZ: 0, gunSize: 1, gunTilt: 0 };
 // graphics: `preset` picks all the others; touching one switches the preset to 'custom'
 export const GRAPHICS_DEFAULTS = {
   preset: 'high',
@@ -78,9 +88,20 @@ export const GRAPHICS_PRESETS = {
   ultra: { renderScale: 1.5, antialias: true, texFilter: 'aniso', particles: 'high', dynLights: true, bloom: true, holo: true, decals: true, sky: true },
 };
 export function loadSettings() {
-  let s;
-  try { s = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { s = { ...DEFAULTS }; }
+  let stored;
+  try { stored = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch { stored = {}; }
+  const s = { ...DEFAULTS, ...stored };
   s.perWeapon = JSON.parse(JSON.stringify(s.perWeapon || {}));
+  // settings saved before the current default viewmodel: anyone who never moved the gun gets the
+  // new placement; a gun someone positioned themselves is left alone
+  if (stored.viewmodelV !== DEFAULTS.viewmodelV) {
+    const untouched = GUN_KEYS.every((k) => stored[k] === undefined || stored[k] === OLD_GUN[k]) && !Object.values(s.perWeapon).some((o) => o && o.gun);
+    if (untouched) {
+      for (const k of GUN_KEYS) s[k] = DEFAULTS[k];
+      for (const [id, g] of Object.entries(DEFAULT_GUNS)) (s.perWeapon[id] ||= {}).gun = { ...g };
+    }
+    s.viewmodelV = DEFAULTS.viewmodelV;
+  }
   s.graphics = { ...GRAPHICS_DEFAULTS, ...(s.graphics || {}) };
   if (!['cross', 'crossgap', 'dot', 'circle', 'ringdot', 'x', 'brackets', 'chevron', 'tri', 'scope', 'none'].includes(s.crosshair)) s.crosshair = 'cross';
   return s;
