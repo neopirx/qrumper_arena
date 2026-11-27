@@ -5,7 +5,7 @@ import { buildMap } from '../src/maps/builder.js';
 import { CollisionWorld, MASK_PLAYER } from '../src/sim/collision.js';
 import { pmove, makePlayerState, PLAYER_MINS, PLAYER_MAXS } from '../src/sim/pmove.js';
 import { buildNav } from '../src/sim/nav.js';
-const names = process.argv.slice(2).length ? process.argv.slice(2) : ['bastion', 'skywalk', 'spire', 'vigil', 'orbit'];
+const names = process.argv.slice(2).length ? process.argv.slice(2) : ['bastion', 'cistern', 'skywalk', 'spire', 'vigil', 'orbit'];
 let bad = 0;
 for (const name of names) {
   const def = (await import(`../src/maps/${name}.js`)).default;
